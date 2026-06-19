@@ -38,7 +38,7 @@ Axon Interlink is an interactive, browser‑based schematic editor for digital l
 ### Prerequisites
 
 - Node.js (v16 or newer)
-- npm or yarn
+- npm
 
 ### Installation
 

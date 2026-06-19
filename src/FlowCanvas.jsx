@@ -66,8 +66,8 @@ export default function FlowCanvas() {
        2. PANEL RESIZE STATE & HANDLERS
        ============================================================ */
     const dragRef = useRef({ left: false, right: false, startX: 0, startW: 0 });
-    const [leftCollapsed, setLeftCollapsed] = useState(true);
-    const [rightCollapsed, setRightCollapsed] = useState(true);
+    const [leftCollapsed, setLeftCollapsed] = useState(false);
+    const [rightCollapsed, setRightCollapsed] = useState(false);
     const [leftWidth, setLeftWidth] = useState(320);
     const [rightWidth, setRightWidth] = useState(420);
     const [draggingLeft, setDraggingLeft] = useState(false);
