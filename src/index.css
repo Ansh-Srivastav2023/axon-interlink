@@ -1,0 +1,62 @@
+/* ─── NATIVE SCROLLBAR GUTTER KILLER ─── */
+html, body, #app {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  background-color: #000000 !important;
+  
+  /* Prevent browser from rendering scrollbar gutters entirely */
+  overflow: hidden !important; 
+  scrollbar-width: none !important; /* Firefox fallback */
+  -ms-overflow-style: none !important; /* IE/Edge fallback */
+}
+
+/* Hide standard WebKit (Chrome, Safari, Brave, Tauri) scrollbars */
+html::-webkit-scrollbar, 
+body::-webkit-scrollbar, 
+#app::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* ─── REACT FLOW CONTROLS THEMING OVERRIDES ─── */
+.react-flow__controls {
+  background-color: #050505 !important;
+  border: 1px solid #222222 !important;
+  border-radius: 6px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+  overflow: hidden !important;
+}
+
+.react-flow__controls-button {
+  background-color: #0d0d0d !important;
+  border-bottom: 1px solid #222222 !important;
+  /* Crucial: Explicitly style both the text, SVGs, and paths */
+  color: #e2e8f0 !important;
+  fill: #e2e8f0 !important; 
+  border-right: none !important;
+}
+
+.react-flow__controls-button svg {
+  fill: #e2e8f0 !important;
+  color: #e2e8f0 !important;
+}
+
+/* Hover effects for slicker interaction */
+.react-flow__controls-button:hover {
+  background-color: #161616 !important;
+}
+.react-flow__controls-button:hover svg {
+  fill: #3b82f6 !important; /* Highlights blue on hover */
+}
+
+/* Remove bottom border on the last control element */
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
