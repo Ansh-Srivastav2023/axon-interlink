@@ -27,7 +27,7 @@ export default function FlowCanvas() {
     /* ============================================================
        1. THEME & UI STATE
        ============================================================ */
-    const [theme, setTheme] = useState('dark');
+    const [theme, setTheme] = useState('light');
     const t = themes[theme];
     const mainRef = useRef(null);
     const helpColors = theme === 'dark'
