@@ -1,8 +1,8 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { addEdge, useNodesState, useEdgesState, useReactFlow, reconnectEdge, ConnectionMode } from '@xyflow/react';
-import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
+// import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 
-import { ResizeHandle, SmartEdge, LeftPanel, Canvas, RightPanel } from './components';
+import { ResizeHandle, SmartEdge, LeftPanel, Canvas, RightPanel, TopSymbolView } from './panelandcanvas';
 import { GateNode, HardwareNode, SplitterNode } from './nodes'
 
 import { themes } from './styles';
@@ -18,6 +18,7 @@ import Header from './utils/Header';
 import { HelpModal, ClearModal, SaveModal, ErrorModal, ContextualModal } from './modals';
 
 import { useFileOperations, useHistory } from './hooks';
+// import TopSymbolView from './panelandcanvas/TopSymbolView';
 
 const edgeTypes = { smart: SmartEdge };
 const nodeTypes = { hardware: HardwareNode, gate: GateNode, splitter: SplitterNode };
@@ -56,7 +57,7 @@ export default function FlowCanvas() {
     const dragRef = useRef({ left: false, right: false, startX: 0, startW: 0 });
     const [leftCollapsed, setLeftCollapsed] = useState(false);
     const [rightCollapsed, setRightCollapsed] = useState(false);
-    const [leftWidth, setLeftWidth] = useState(350);
+    const [leftWidth, setLeftWidth] = useState(385);
     const [rightWidth, setRightWidth] = useState(420);
     const [draggingLeft, setDraggingLeft] = useState(false);
     const [draggingRight, setDraggingRight] = useState(false);
@@ -262,10 +263,15 @@ export default function FlowCanvas() {
             recordHistory();
             setNodes(nds => nds.filter(n => !n.selected));
             setEdges(eds => eds.filter(e => !e.selected && e.source !== nodeId && e.target !== nodeId));
+
+            // FIX: Clean up any orphaned top-level promoted ports belonging to the deleted block
             setExposedPorts(prev => {
                 const next = { ...prev };
                 Object.keys(next).forEach(key => {
-                    if (next[key].nodeId === nodeId) delete next[key];
+                    // Check both by compound reference structure or matching internal nodeId
+                    if (next[key].nodeId === nodeId || key.startsWith(`${nodeId}__`)) {
+                        delete next[key];
+                    }
                 });
                 return next;
             });
@@ -512,876 +518,905 @@ export default function FlowCanvas() {
     /* ============================================================
        15. CANVAS INTERACTIONS (CONNECT, CLICK, RECONNECT)
        ============================================================ */
-    const onConnect = useCallback((params) => {
-        recordHistory();
-        let sourceNode = nodes.find(n => n.id === params.source);
-        let targetNode = nodes.find(n => n.id === params.target);
-        const isSourceOutput = (sourceNode?.data.outputs || []).some(p => p.name === params.sourceHandle);
-        const isTargetInput = (targetNode?.data.inputs || []).some(p => p.name === params.targetHandle);
-        let normParams = { ...params };
-        if (!isSourceOutput && !isTargetInput) {
-            const isSourceInput = (sourceNode?.data.inputs || []).some(p => p.name === params.sourceHandle);
-            const isTargetOutput = (targetNode?.data.outputs || []).some(p => p.name === params.targetHandle);
-            if (isSourceInput && isTargetOutput) {
-                normParams = { source: params.target, sourceHandle: params.targetHandle, target: params.source, targetHandle: params.sourceHandle };
-                sourceNode = nodes.find(n => n.id === normParams.source);
-                targetNode = nodes.find(n => n.id === normParams.target);
-            }
-        }
-        const finalSrcPort = (sourceNode?.data.outputs || []).find(p => p.name === normParams.sourceHandle);
-        const finalTgtPort = (targetNode?.data.inputs || []).find(p => p.name === normParams.targetHandle);
-        if (!finalSrcPort || !finalTgtPort) {
-            console.warn("Invalid net connection blocked.");
-            return;
-        }
-        const srcCompoundKey = `${normParams.source}__${normParams.sourceHandle}`;
-        const tgtCompoundKey = `${normParams.target}__${normParams.targetHandle}`;
-        setExposedPorts(prev => {
-            const next = { ...prev };
-            delete next[srcCompoundKey];
-            delete next[tgtCompoundKey];
-            return next;
-        });
-        setNodes(nds => nds.map(n => {
-            if (n.id === normParams.source || n.id === normParams.target) {
-                const newExposed = { ...(n.data.exposedPorts || {}) };
-                delete newExposed[normParams.sourceHandle];
-                delete newExposed[normParams.targetHandle];
-                return { ...n, data: { ...n.data, exposedPorts: newExposed } };
-            }
-            return n;
-        }));
-        const portWidth = Math.min(finalSrcPort.width, finalTgtPort.width);
-        const newEdge = { ...normParams, id: `e-${normParams.source}-${normParams.sourceHandle}-${normParams.target}-${normParams.targetHandle}`, type: 'smart', data: { bitWidth: portWidth } };
-        setEdges(eds => addEdge(newEdge, eds));
-    }, [nodes, setNodes, setEdges, recordHistory]);
-
-    const onReconnect = useCallback((oldEdge, newConnection) => {
-        recordHistory();
-        setEdges((els) => reconnectEdge(oldEdge, newConnection, els));
-    }, [setEdges, recordHistory]);
-
-    const onNodeClick = useCallback((event, node) => {
-        if (event.target?.closest?.('.react-flow__handle')) return;
-        setSelectedNodeId(node.id);
-        setSelectedEdgeId(null);
-        setGlowingNet(null);
-        setTraceGlowingEdgeId(null);
-        setModalTab('properties');
-        setActiveModal({ type: 'node', id: node.id });
-        const modalWidth = 500;
-        const modalHeight = 580;
-        const x = Math.max(10, Math.min(event.clientX - 240, window.innerWidth - modalWidth - 10));
-        const y = Math.max(10, Math.min(event.clientY - 80, window.innerHeight - modalHeight - 10));
-        setModalPos({ x, y });
-    }, [setSelectedNodeId, setSelectedEdgeId]);
-
-    const onEdgeClick = useCallback((event, edge) => {
-        setSelectedEdgeId(edge.id);
-        setSelectedNodeId(null);
-        setTraceGlowingEdgeId(null);
-        setGlowingNet({ source: edge.source, sourceHandle: edge.sourceHandle });
-        setModalTab('properties');
-        setActiveModal({ type: 'edge', id: edge.id });
-        const modalWidth = 380;
-        const modalHeight = 420;
-        const x = Math.max(10, Math.min(event.clientX - 180, window.innerWidth - modalWidth - 10));
-        const y = Math.max(10, Math.min(event.clientY - 80, window.innerHeight - modalHeight - 10));
-        setModalPos({ x, y });
-    }, [setSelectedEdgeId, setSelectedNodeId]);
-
-    const onPaneClick = useCallback((event) => {
-        if (event.target?.closest?.('.react-flow__handle')) return;
-        setSelectedNodeId(null);
-        setSelectedEdgeId(null);
-        setGlowingNet(null);
-        setTraceGlowingEdgeId(null);
-    }, [setSelectedNodeId, setSelectedEdgeId]);
-
 
     /* ============================================================
-       16. SELECTED NODE / EDGE HELPERS
+       15. CANVAS INTERACTIONS (CONNECT, CLICK, RECONNECT)
        ============================================================ */
-    const selectedNode = useMemo(() => nodes.find(n => n.id === selectedNodeId) || null, [nodes, selectedNodeId]);
+    // ENFORCE MAX 1 WIRE PER INPUT PORT
+    const isValidConnection = useCallback((connection) => {
+        // Look through current edges to see if this target input handle already has a driver wire
+        const isTargetAlreadyWired = edges.some(
+            (e) => e.target === connection.target && e.targetHandle === connection.targetHandle
+        );
+
+        if (isTargetAlreadyWired) {
+            return false; // Crucial: This physically blocks the user from making the connection
+        }
+        return true;
+    }, [edges]);
 
 
-    /* ============================================================
-       17. PORT & NODE UPDATE FUNCTIONS
-       ============================================================ */
-
-    const toggleExposePort = (nodeId, portName, portRef, isInput) => {
-        recordHistory();
-        setExposedPorts(prev => {
-            const key = `${nodeId}__${portName}`;
-            const next = { ...prev };
-            if (next[key]) delete next[key];
-            else next[key] = { nodeId, portName, width: portRef.width, msb: portRef.msb, lsb: portRef.lsb, isInput };
-            return next;
-        });
-        setNodes(nds => nds.map(n => {
-            if (n.id !== nodeId) return n;
-            const newExposed = { ...(n.data.exposedPorts || {}) };
-            if (newExposed[portName]) delete newExposed[portName];
-            else newExposed[portName] = true;
-            return { ...n, data: { ...n.data, exposedPorts: newExposed } };
-        }));
-    };
-
-    const togglePortSwap = () => {
-        if (!selectedNodeId) return;
-        recordHistory();
-        setNodes(nds => nds.map(n => n.id === selectedNodeId ? { ...n, data: { ...n.data, portsSwapped: !n.data.portsSwapped } } : n));
-    };
-
-    const updateSelectedNode = (field, value) => {
-        if (!selectedNodeId) return;
-        const nodeToUpdate = nodes.find(n => n.id === selectedNodeId);
-        if (!nodeToUpdate) return;
-
-        if (field === 'inputs' || field === 'outputs') {
-            const parsed = parsePorts(value);
-            const currentInputs = field === 'inputs' ? parsed : (nodeToUpdate.data.inputs || []);
-            const currentOutputs = field === 'outputs' ? parsed : (nodeToUpdate.data.outputs || []);
-            const error = validatePorts(currentInputs, currentOutputs);
-            if (error) {
-                showError(error);
+        const onConnect = useCallback((params) => {
+            recordHistory();
+            let sourceNode = nodes.find(n => n.id === params.source);
+            let targetNode = nodes.find(n => n.id === params.target);
+            const isSourceOutput = (sourceNode?.data.outputs || []).some(p => p.name === params.sourceHandle);
+            const isTargetInput = (targetNode?.data.inputs || []).some(p => p.name === params.targetHandle);
+            let normParams = { ...params };
+            if (!isSourceOutput && !isTargetInput) {
+                const isSourceInput = (sourceNode?.data.inputs || []).some(p => p.name === params.sourceHandle);
+                const isTargetOutput = (targetNode?.data.outputs || []).some(p => p.name === params.targetHandle);
+                if (isSourceInput && isTargetOutput) {
+                    normParams = { source: params.target, sourceHandle: params.targetHandle, target: params.source, targetHandle: params.sourceHandle };
+                    sourceNode = nodes.find(n => n.id === normParams.source);
+                    targetNode = nodes.find(n => n.id === normParams.target);
+                }
+            }
+            const finalSrcPort = (sourceNode?.data.outputs || []).find(p => p.name === normParams.sourceHandle);
+            const finalTgtPort = (targetNode?.data.inputs || []).find(p => p.name === normParams.targetHandle);
+            if (!finalSrcPort || !finalTgtPort) {
+                console.warn("Invalid net connection blocked.");
                 return;
             }
-        }
-        recordHistory();
-        const oldModuleName = nodeToUpdate.data.moduleName;
-        const newValue = field.includes('puts') ? parsePorts(value) : value;
-        const newModuleName = field === 'moduleName' ? value.trim() : oldModuleName;
-        const newInputs = field === 'inputs' ? newValue : (nodeToUpdate.data.inputs || []);
-        const newOutputs = field === 'outputs' ? newValue : (nodeToUpdate.data.outputs || []);
+            const srcCompoundKey = `${normParams.source}__${normParams.sourceHandle}`;
+            const tgtCompoundKey = `${normParams.target}__${normParams.targetHandle}`;
+            setExposedPorts(prev => {
+                const next = { ...prev };
+                delete next[srcCompoundKey];
+                delete next[tgtCompoundKey];
+                return next;
+            });
+            setNodes(nds => nds.map(n => {
+                if (n.id === normParams.source || n.id === normParams.target) {
+                    const newExposed = { ...(n.data.exposedPorts || {}) };
+                    delete newExposed[normParams.sourceHandle];
+                    delete newExposed[normParams.targetHandle];
+                    return { ...n, data: { ...n.data, exposedPorts: newExposed } };
+                }
+                return n;
+            }));
+            const portWidth = Math.min(finalSrcPort.width, finalTgtPort.width);
+            const newEdge = { ...normParams, id: `e-${normParams.source}-${normParams.sourceHandle}-${normParams.target}-${normParams.targetHandle}`, type: 'smart', data: { bitWidth: portWidth } };
+            setEdges(eds => addEdge(newEdge, eds));
+        }, [nodes, setNodes, setEdges, recordHistory]);
 
-        setCustomCodes(prev => {
-            const next = { ...prev };
-            let baseCode = next[oldModuleName];
-            if (!baseCode) {
-                const pd = [];
-                (nodeToUpdate.data.inputs || []).forEach(p => pd.push(`  input wire ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`));
-                (nodeToUpdate.data.outputs || []).forEach(p => pd.push(`  output logic ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`));
-                baseCode = `module ${oldModuleName} (\n${pd.join(',\n')}\n);\n\n// Write internal design logic here\n\nendmodule\n`;
+        const onReconnect = useCallback((oldEdge, newConnection) => {
+            recordHistory();
+            setEdges((els) => reconnectEdge(oldEdge, newConnection, els));
+        }, [setEdges, recordHistory]);
+
+        const onNodeClick = useCallback((event, node) => {
+            if (event.target?.closest?.('.react-flow__handle')) return;
+            setSelectedNodeId(node.id);
+            setSelectedEdgeId(null);
+            setGlowingNet(null);
+            setTraceGlowingEdgeId(null);
+            setModalTab('properties');
+            setActiveModal({ type: 'node', id: node.id });
+            const modalWidth = 500;
+            const modalHeight = 580;
+            const x = Math.max(10, Math.min(event.clientX - 240, window.innerWidth - modalWidth - 10));
+            const y = Math.max(10, Math.min(event.clientY - 80, window.innerHeight - modalHeight - 10));
+            setModalPos({ x, y });
+        }, [setSelectedNodeId, setSelectedEdgeId]);
+
+        const onEdgeClick = useCallback((event, edge) => {
+            setSelectedEdgeId(edge.id);
+            setSelectedNodeId(null);
+            setTraceGlowingEdgeId(null);
+            setGlowingNet({ source: edge.source, sourceHandle: edge.sourceHandle });
+            setModalTab('properties');
+            setActiveModal({ type: 'edge', id: edge.id });
+            const modalWidth = 380;
+            const modalHeight = 420;
+            const x = Math.max(10, Math.min(event.clientX - 180, window.innerWidth - modalWidth - 10));
+            const y = Math.max(10, Math.min(event.clientY - 80, window.innerHeight - modalHeight - 10));
+            setModalPos({ x, y });
+        }, [setSelectedEdgeId, setSelectedNodeId]);
+
+        const onPaneClick = useCallback((event) => {
+            if (event.target?.closest?.('.react-flow__handle')) return;
+            setSelectedNodeId(null);
+            setSelectedEdgeId(null);
+            setGlowingNet(null);
+            setTraceGlowingEdgeId(null);
+        }, [setSelectedNodeId, setSelectedEdgeId]);
+
+
+        /* ============================================================
+           16. SELECTED NODE / EDGE HELPERS
+           ============================================================ */
+        const selectedNode = useMemo(() => nodes.find(n => n.id === selectedNodeId) || null, [nodes, selectedNodeId]);
+
+
+        /* ============================================================
+           17. PORT & NODE UPDATE FUNCTIONS
+           ============================================================ */
+        const toggleExposePort = (nodeId, portName, portRef, isInput) => {
+            recordHistory();
+            setExposedPorts(prev => {
+                const key = `${nodeId}__${portName}`;
+                const next = { ...prev };
+                if (next[key]) delete next[key];
+                else next[key] = { nodeId, portName, width: portRef.width, msb: portRef.msb, lsb: portRef.lsb, isInput };
+                return next;
+            });
+            setNodes(nds => nds.map(n => {
+                if (n.id !== nodeId) return n;
+                const newExposed = { ...(n.data.exposedPorts || {}) };
+                if (newExposed[portName]) delete newExposed[portName];
+                else newExposed[portName] = true;
+                return { ...n, data: { ...n.data, exposedPorts: newExposed } };
+            }));
+        };
+
+        const togglePortSwap = () => {
+            if (!selectedNodeId) return;
+            recordHistory();
+            setNodes(nds => nds.map(n => n.id === selectedNodeId ? { ...n, data: { ...n.data, portsSwapped: !n.data.portsSwapped } } : n));
+        };
+
+        const updateSelectedNode = (field, value) => {
+            if (!selectedNodeId) return;
+            const nodeToUpdate = nodes.find(n => n.id === selectedNodeId);
+            if (!nodeToUpdate) return;
+
+            if (field === 'inputs' || field === 'outputs') {
+                const parsed = parsePorts(value);
+                const currentInputs = field === 'inputs' ? parsed : (nodeToUpdate.data.inputs || []);
+                const currentOutputs = field === 'outputs' ? parsed : (nodeToUpdate.data.outputs || []);
+                const error = validatePorts(currentInputs, currentOutputs);
+                if (error) {
+                    showError(error);
+                    return;
+                }
             }
+            recordHistory();
+            const oldModuleName = nodeToUpdate.data.moduleName;
+            const newValue = field.includes('puts') ? parsePorts(value) : value;
+            const newModuleName = field === 'moduleName' ? value.trim() : oldModuleName;
+            const newInputs = field === 'inputs' ? newValue : (nodeToUpdate.data.inputs || []);
+            const newOutputs = field === 'outputs' ? newValue : (nodeToUpdate.data.outputs || []);
+
+            setCustomCodes(prev => {
+                const next = { ...prev };
+                let baseCode = next[oldModuleName];
+                if (!baseCode) {
+                    const pd = [];
+                    (nodeToUpdate.data.inputs || []).forEach(p => pd.push(`  input wire ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`));
+                    (nodeToUpdate.data.outputs || []).forEach(p => pd.push(`  output logic ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`));
+                    baseCode = `module ${oldModuleName} (\n${pd.join(',\n')}\n);\n\n// Write internal design logic here\n\nendmodule\n`;
+                }
+                const portDecls = [];
+                newInputs.forEach(p => portDecls.push(`  input wire ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`));
+                newOutputs.forEach(p => portDecls.push(`  output logic ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`));
+                const newSignature = `module ${newModuleName} (\n${portDecls.join(',\n')}\n);`;
+                const updatedCode = baseCode.replace(/module\s+\w+\s*\([\s\S]*?\);/, newSignature);
+                if (field === 'moduleName' && oldModuleName !== newModuleName) next[newModuleName] = updatedCode;
+                else next[oldModuleName] = updatedCode;
+                return next;
+            });
+            if (field === 'inputs' || field === 'outputs') setNodes(nds => nds.map(n => n.data.moduleName === oldModuleName ? { ...n, data: { ...n.data, [field]: newValue } } : n));
+            else setNodes(nds => nds.map(n => n.id === selectedNodeId ? { ...n, data: { ...n.data, [field]: newModuleName } } : n));
+        };
+
+
+        /* ============================================================
+           18. CODE EDITOR (RTL & TESTBENCH)
+           ============================================================ */
+        const currentModuleCode = useMemo(() => {
+            if (!selectedNode) return '';
+            const mName = selectedNode.data.moduleName;
+            if (customCodes[mName] !== undefined) return customCodes[mName];
+            let code = `module ${mName} (\n`;
             const portDecls = [];
-            newInputs.forEach(p => portDecls.push(`  input wire ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`));
-            newOutputs.forEach(p => portDecls.push(`  output logic ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`));
-            const newSignature = `module ${newModuleName} (\n${portDecls.join(',\n')}\n);`;
-            const updatedCode = baseCode.replace(/module\s+\w+\s*\([\s\S]*?\);/, newSignature);
-            if (field === 'moduleName' && oldModuleName !== newModuleName) next[newModuleName] = updatedCode;
-            else next[oldModuleName] = updatedCode;
-            return next;
-        });
-        if (field === 'inputs' || field === 'outputs') setNodes(nds => nds.map(n => n.data.moduleName === oldModuleName ? { ...n, data: { ...n.data, [field]: newValue } } : n));
-        else setNodes(nds => nds.map(n => n.id === selectedNodeId ? { ...n, data: { ...n.data, [field]: newModuleName } } : n));
-    };
+            (selectedNode.data.inputs || []).forEach(p => { portDecls.push(`  input wire ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`); });
+            (selectedNode.data.outputs || []).forEach(p => { portDecls.push(`  output logic ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`); });
+            code += portDecls.join(',\n') + `\n);\n\n// Write internal design logic here\n\nendmodule\n`;
+            return code;
+        }, [selectedNode, customCodes]);
 
+        const handleCodeChange = (e) => {
+            if (!selectedNode) return;
+            const mName = selectedNode.data.moduleName;
+            setCustomCodes(prev => ({ ...prev, [mName]: e.target.value }));
+        };
 
-    /* ============================================================
-       18. CODE EDITOR (RTL & TESTBENCH)
-       ============================================================ */
-    const currentModuleCode = useMemo(() => {
-        if (!selectedNode) return '';
-        const mName = selectedNode.data.moduleName;
-        if (customCodes[mName] !== undefined) return customCodes[mName];
-        let code = `module ${mName} (\n`;
-        const portDecls = [];
-        (selectedNode.data.inputs || []).forEach(p => { portDecls.push(`  input wire ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`); });
-        (selectedNode.data.outputs || []).forEach(p => { portDecls.push(`  output logic ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`); });
-        code += portDecls.join(',\n') + `\n);\n\n// Write internal design logic here\n\nendmodule\n`;
-        return code;
-    }, [selectedNode, customCodes]);
+        const structuralVerilogFull = useMemo(() => {
+            let code = `// ============================================================\n// Structural Flat Top Module\n// ============================================================\n\nmodule top_module (\n  input wire clk,\n  input wire rst_n`;
+            const exposedKeys = Object.keys(exposedPorts);
+            const validExposedKeys = exposedKeys.filter(key => {
+                const p = exposedPorts[key];
+                const node = nodes.find(n => n.id === p.nodeId);
+                return !(p.isInput && node?.data.autoRoute?.[p.portName]);
+            });
+            if (validExposedKeys.length > 0) {
+                code += `,\n`;
+                const ioLines = validExposedKeys.map(key => {
+                    const port = exposedPorts[key];
+                    const node = nodes.find(n => n.id === port.nodeId);
+                    const prefix = node ? node.data.instanceName : 'unknown';
+                    const wDecl = port.width > 1 ? `[${port.msb !== undefined ? port.msb : port.width - 1}:${port.lsb !== undefined ? port.lsb : 0}] ` : '';
+                    const ioType = port.isInput ? 'input wire' : 'output wire';
+                    return `  ${ioType} ${wDecl}${prefix}_${port.portName}`;
+                });
+                code += ioLines.join(',\n') + `\n`;
+            } else { code += `\n`; }
+            code += `);\n\n`;
 
-    const handleCodeChange = (e) => {
-        if (!selectedNode) return;
-        const mName = selectedNode.data.moduleName;
-        setCustomCodes(prev => ({ ...prev, [mName]: e.target.value }));
-    };
+            // --- NEW: DECLARE INTERNAL WIRES BASED ON INPUTS (SINKS) ---
+            const internalWireDecls = [];
+            nodes.forEach((node) => {
+                if (!node.data.inputs) return;
+                (node.data.inputs || []).forEach((p) => {
+                    // Find if there's an incoming wire driving this input port
+                    const incomingEdge = edges.find(e => e.target === node.id && e.targetHandle === p.name);
+                    const exposedKey = `${node.id}__${p.name}`;
+                    const isExposed = !!exposedPorts[exposedKey];
 
-    const structuralVerilogFull = useMemo(() => {
-        let code = `// ============================================================\n// Structural Flat Top Module\n// ============================================================\n\nmodule top_module (\n  input wire clk,\n  input wire rst_n`;
-        const exposedKeys = Object.keys(exposedPorts);
-        const validExposedKeys = exposedKeys.filter(key => {
-            const p = exposedPorts[key];
-            const node = nodes.find(n => n.id === p.nodeId);
-            return !(p.isInput && node?.data.autoRoute?.[p.portName]);
-        });
-        if (validExposedKeys.length > 0) {
-            code += `,\n`;
-            const ioLines = validExposedKeys.map(key => {
+                    // Only declare an internal wire if it is driven and not exposed to the top level
+                    if (incomingEdge && !isExposed) {
+                        const wDecl = p.width > 1 ? `[${p.width - 1}:0] ` : '';
+                        internalWireDecls.push(`  wire ${wDecl}w_${node.id}_${p.name};`);
+                    }
+                });
+            });
+
+            if (internalWireDecls.length > 0) {
+                code += `  // Internal Routing Nets (Sink-Based Naming)\n`;
+                code += internalWireDecls.join('\n') + `\n\n`;
+            }
+
+            // --- SPLITTER / BUNDLER ASSIGNMENTS ---
+            const splitterAssigns = [];
+            nodes.forEach((node) => {
+                if (node.data.isSplitter) {
+                    const inputEdge = edges.find(e => e.target === node.id);
+                    // The incoming wire name is now based on this splitter's input port name!
+                    const sourceBusNet = inputEdge ? `w_${node.id}_${inputEdge.targetHandle}` : "bus_in";
+
+                    (node.data.outputs || []).forEach((outP) => {
+                        const outEdges = edges.filter(e => e.source === node.id && e.sourceHandle === outP.name);
+                        const bitRange = outP.width > 1 ? `[${outP.msb}:${outP.lsb}]` : `[${outP.lsb}]`;
+
+                        // A splitter output can drive multiple destinations. Each destination has its own unique wire name now!
+                        outEdges.forEach(edge => {
+                            splitterAssigns.push(`  assign w_${edge.target}_${edge.targetHandle} = ${sourceBusNet}${bitRange};`);
+                        });
+                    });
+                }
+                if (node.data.isBundler) {
+                    const outputPort = (node.data.outputs || [])[0];
+                    const outEdges = edges.filter(e => e.source === node.id && e.sourceHandle === outputPort?.name);
+
+                    if (outEdges.length > 0) {
+                        const bundledNets = [...(node.data.inputs || [])].reverse().map(inP => {
+                            const driverEdge = edges.find(e => e.target === node.id && e.targetHandle === inP.name);
+                            return driverEdge ? `w_${node.id}_${inP.name}` : `${inP.width}'bz`;
+                        });
+
+                        // Assign to each unique sink port driven by this bundler
+                        outEdges.forEach(edge => {
+                            splitterAssigns.push(`  assign w_${edge.target}_${edge.targetHandle} = { ${bundledNets.join(', ')} };`);
+                        });
+                    }
+                }
+            });
+
+            if (splitterAssigns.length > 0) {
+                code += `  // Inline Structural Bus Routing Layers\n`;
+                code += splitterAssigns.join('\n') + `\n\n`;
+            }
+
+            // --- COMPONENT INSTANTIATIONS ---
+            code += `  // Component Instantiations\n`;
+            nodes.forEach((node) => {
+                if (node.data.isSplitter || node.data.isBundler) return;
+                code += `  ${node.data.moduleName} ${node.data.instanceName} (\n`;
+                const maps = [];
+
+                // Map Inputs
+                if (node.data.inputs) {
+                    (node.data.inputs || []).forEach(p => {
+                        const e = edges.find(ed => ed.target === node.id && ed.targetHandle === p.name);
+                        const exposedKey = `${node.id}__${p.name}`;
+                        const tieoff = node.data.tieoffs?.[p.name];
+                        const autoRoute = node.data.autoRoute?.[p.name];
+
+                        if (e) {
+                            // The net name is now uniquely derived from THIS target port!
+                            maps.push(`    .${p.name}(w_${node.id}_${p.name})`);
+                        } else if (autoRoute) maps.push(`    .${p.name}(${p.name})`);
+                        else if (exposedPorts[exposedKey]) maps.push(`    .${p.name}(${node.data.instanceName}_${p.name})`);
+                        else if (tieoff) maps.push(`    .${p.name}(${tieoff})`);
+                        else maps.push(`    .${p.name}(${p.width}'bz)`);
+                    });
+                }
+
+                // Map Outputs
+                if (node.data.outputs) {
+                    (node.data.outputs || []).forEach(p => {
+                        const connectedEdges = edges.filter(ed => ed.source === node.id && ed.sourceHandle === p.name);
+                        const exposedKey = `${node.id}__${p.name}`;
+
+                        if (exposedPorts[exposedKey]) {
+                            maps.push(`    .${p.name}(${node.data.instanceName}_${p.name})`);
+                        } else if (connectedEdges.length > 0) {
+                            // If an output port splits into multiple wires, we look at the first wire target connection
+                            // since they are electrically tied.
+                            maps.push(`    .${p.name}(w_${connectedEdges[0].target}_${connectedEdges[0].targetHandle})`);
+                        } else {
+                            maps.push(`    .${p.name}()`);
+                        }
+                    });
+                }
+                code += maps.join(',\n') + `\n  );\n\n`;
+            });
+            code += `endmodule\n\n`;
+
+            const seen = new Set();
+            nodes.forEach((node) => {
+                const mName = node.data.moduleName;
+                if (seen.has(mName)) return;
+                seen.add(mName);
+                if (customCodes[mName] !== undefined) code += `// --- Core Compute Definition: ${mName} ---\n` + customCodes[mName] + `\n\n`;
+            });
+            return code;
+        }, [nodes, edges, customCodes, exposedPorts]);
+
+        const testbenchCodeFull = useMemo(() => {
+            let code = `// ============================================================\n// Structural Flat Top Module - Auto-Generated Testbench\n// ============================================================\n\n\`timescale 1ns / 1ps\n\nmodule top_module_tb();\n\n  reg clk;\n  reg rst_n;\n\n`;
+            const validExposedKeys = Object.keys(exposedPorts).filter(key => {
+                const p = exposedPorts[key];
+                const node = nodes.find(n => n.id === p.nodeId);
+                return !(p.isInput && node?.data.autoRoute?.[p.portName]);
+            });
+            const mappedInputs = [];
+            const mappedOutputs = [];
+            validExposedKeys.forEach(key => {
                 const port = exposedPorts[key];
                 const node = nodes.find(n => n.id === port.nodeId);
                 const prefix = node ? node.data.instanceName : 'unknown';
                 const wDecl = port.width > 1 ? `[${port.msb !== undefined ? port.msb : port.width - 1}:${port.lsb !== undefined ? port.lsb : 0}] ` : '';
-                const ioType = port.isInput ? 'input wire' : 'output wire';
-                return `  ${ioType} ${wDecl}${prefix}_${port.portName}`;
-            });
-            code += ioLines.join(',\n') + `\n`;
-        } else { code += `\n`; }
-        code += `);\n\n`;
-        const internalWireDecls = [];
-        nodes.forEach((node) => {
-            if (!node.data.outputs) return;
-            (node.data.outputs || []).forEach((p) => {
-                const hasEdges = edges.some(e => e.source === node.id && e.sourceHandle === p.name);
-                const exposedKey = `${node.id}__${p.name}`;
-                const isExposed = !!exposedPorts[exposedKey];
-                if (hasEdges && !isExposed) {
-                    const wDecl = p.width > 1 ? `[${p.msb}:${p.lsb}] ` : '';
-                    internalWireDecls.push(`  wire ${wDecl}w_${node.id}_${p.name};`);
+                const netName = `${prefix}_${port.portName}`;
+                if (port.isInput) {
+                    code += `  reg ${wDecl}${netName};\n`;
+                    mappedInputs.push({ name: netName, width: port.width });
+                } else {
+                    code += `  wire ${wDecl}${netName};\n`;
+                    mappedOutputs.push(netName);
                 }
             });
-        });
-        if (internalWireDecls.length > 0) {
-            code += `  // Internal Routing Nets\n`;
-            code += internalWireDecls.join('\n') + `\n\n`;
-        }
-        const splitterAssigns = [];
-        nodes.forEach((node) => {
-            if (node.data.isSplitter) {
-                const inputEdge = edges.find(e => e.target === node.id);
-                const sourceBusNet = inputEdge ? `w_${inputEdge.source}_${inputEdge.sourceHandle}` : "bus_in";
-                (node.data.outputs || []).forEach((outP) => {
-                    const hasEdge = edges.some(e => e.source === node.id && e.sourceHandle === outP.name);
-                    const bitRange = outP.width > 1 ? `[${outP.msb}:${outP.lsb}]` : `[${outP.lsb}]`;
-                    if (hasEdge) {
-                        splitterAssigns.push(`  assign w_${node.id}_${outP.name} = ${sourceBusNet}${bitRange}; // Structural Split Mapping`);
-                    } else {
-                        splitterAssigns.push(`  // wire w_${node.id}_${outP.name} = ${sourceBusNet}${bitRange}; // Floating Split Slice`);
-                    }
+            code += `\n  top_module uut (\n    .clk(clk),\n    .rst_n(rst_n)`;
+            validExposedKeys.forEach(key => {
+                const port = exposedPorts[key];
+                const node = nodes.find(n => n.id === port.nodeId);
+                const prefix = node ? node.data.instanceName : 'unknown';
+                const netName = `${prefix}_${port.portName}`;
+                code += `,\n    .${netName}(${netName})`;
+            });
+            code += `\n  );\n\n  initial begin\n    clk = 0;\n    forever #5 clk = ~clk;\n  end\n\n  initial begin\n    rst_n = 0;\n`;
+            mappedInputs.forEach(inputObj => {
+                code += `    ${inputObj.name} = ${inputObj.width}'b0;\n`;
+            });
+            code += `\n    #100;\n    rst_n = 1;\n    #20;\n\n`;
+            if (mappedInputs.length > 0) {
+                code += `    // --- Test Pattern Cycle A ---\n`;
+                mappedInputs.forEach((inputObj) => {
+                    const val = inputObj.width > 1 ? `${inputObj.width}'hAA` : `1'b1`;
+                    code += `    ${inputObj.name} = ${val};\n`;
                 });
-            }
-            if (node.data.isBundler) {
-                const outputPort = (node.data.outputs || [])[0];
-                const hasOutEdge = edges.some(e => e.source === node.id && e.sourceHandle === outputPort?.name);
-                if (hasOutEdge) {
-                    const bundledNets = [...(node.data.inputs || [])].reverse().map(inP => {
-                        const driverEdge = edges.find(e => e.target === node.id && e.targetHandle === inP.name);
-                        return driverEdge ? `w_${driverEdge.source}_${driverEdge.sourceHandle}` : `${inP.width}'bz`;
-                    });
-                    splitterAssigns.push(`  assign w_${node.id}_${outputPort.name} = { ${bundledNets.join(', ')} }; // Structural Bundle Packing`);
-                }
-            }
-        });
-        if (splitterAssigns.length > 0) {
-            code += `  // Inline Structural Bus Routing Layers\n`;
-            code += splitterAssigns.join('\n') + `\n\n`;
-        }
-        code += `  // Component Instantiations\n`;
-        nodes.forEach((node) => {
-            if (node.data.isSplitter || node.data.isBundler) return;
-            code += `  ${node.data.moduleName} ${node.data.instanceName} (\n`;
-            const maps = [];
-            if (node.data.inputs) {
-                (node.data.inputs || []).forEach(p => {
-                    const e = edges.find(ed => ed.target === node.id && ed.targetHandle === p.name);
-                    const exposedKey = `${node.id}__${p.name}`;
-                    const tieoff = node.data.tieoffs?.[p.name];
-                    const autoRoute = node.data.autoRoute?.[p.name];
-                    if (e) {
-                        const srcNode = nodes.find(n => n.id === e.source);
-                        const srcExposedKey = `${e.source}__${e.sourceHandle}`;
-                        if (exposedPorts[srcExposedKey] && srcNode) maps.push(`    .${p.name}(${srcNode.data.instanceName}_${e.sourceHandle})`);
-                        else maps.push(`    .${p.name}(w_${e.source}_${e.sourceHandle})`);
-                    } else if (autoRoute) maps.push(`    .${p.name}(${p.name})`);
-                    else if (exposedPorts[exposedKey]) maps.push(`    .${p.name}(${node.data.instanceName}_${p.name})`);
-                    else if (tieoff) maps.push(`    .${p.name}(${tieoff})`);
-                    else maps.push(`    .${p.name}(${p.width}'bz)`);
+                code += `    #40;\n\n    // --- Test Pattern Cycle B ---\n`;
+                mappedInputs.forEach((inputObj) => {
+                    const val = inputObj.width > 1 ? `${inputObj.width}'h55` : `1'b0`;
+                    code += `    ${inputObj.name} = ${val};\n`;
                 });
-            }
-            if (node.data.outputs) {
-                (node.data.outputs || []).forEach(p => {
-                    const hasEdges = edges.some(ed => ed.source === node.id && ed.sourceHandle === p.name);
-                    const exposedKey = `${node.id}__${p.name}`;
-                    if (exposedPorts[exposedKey]) maps.push(`    .${p.name}(${node.data.instanceName}_${p.name})`);
-                    else if (hasEdges) maps.push(`    .${p.name}(w_${node.id}_${p.name})`);
-                    else maps.push(`    .${p.name}()`);
+                code += `    #40;\n\n    // --- Test Pattern Cycle C ---\n`;
+                mappedInputs.forEach((inputObj, idx) => {
+                    const val = inputObj.width > 1 ? `${inputObj.width}'hF0` : `${idx % 2 === 0 ? "1'b1" : "1'b0"}`;
+                    code += `    ${inputObj.name} = ${val};\n`;
                 });
-            }
-            code += maps.join(',\n') + `\n  );\n\n`;
-        });
-        code += `endmodule\n\n`;
-        const seen = new Set();
-        nodes.forEach((node) => {
-            const mName = node.data.moduleName;
-            if (seen.has(mName)) return;
-            seen.add(mName);
-            if (customCodes[mName] !== undefined) code += `// --- Core Compute Definition: ${mName} ---\n` + customCodes[mName] + `\n\n`;
-        });
-        return code;
-    }, [nodes, edges, customCodes, exposedPorts]);
-
-    const testbenchCodeFull = useMemo(() => {
-        let code = `// ============================================================\n// Structural Flat Top Module - Auto-Generated Testbench\n// ============================================================\n\n\`timescale 1ns / 1ps\n\nmodule top_module_tb();\n\n  reg clk;\n  reg rst_n;\n\n`;
-        const validExposedKeys = Object.keys(exposedPorts).filter(key => {
-            const p = exposedPorts[key];
-            const node = nodes.find(n => n.id === p.nodeId);
-            return !(p.isInput && node?.data.autoRoute?.[p.portName]);
-        });
-        const mappedInputs = [];
-        const mappedOutputs = [];
-        validExposedKeys.forEach(key => {
-            const port = exposedPorts[key];
-            const node = nodes.find(n => n.id === port.nodeId);
-            const prefix = node ? node.data.instanceName : 'unknown';
-            const wDecl = port.width > 1 ? `[${port.msb !== undefined ? port.msb : port.width - 1}:${port.lsb !== undefined ? port.lsb : 0}] ` : '';
-            const netName = `${prefix}_${port.portName}`;
-            if (port.isInput) {
-                code += `  reg ${wDecl}${netName};\n`;
-                mappedInputs.push({ name: netName, width: port.width });
+                code += `    #40;\n`;
             } else {
-                code += `  wire ${wDecl}${netName};\n`;
-                mappedOutputs.push(netName);
+                code += `    #200;\n`;
             }
+            code += `\n    #100;\n    $display("[TB SUCCESS] Simulation cycles executed completely without hangs.");\n    $finish;\n  end\n\nendmodule\n`;
+            return code;
+        }, [exposedPorts, nodes]);
+
+        const handleCopyCode = () => {
+            const codeToCopy = topViewMode === 'testbench' ? testbenchCodeFull : structuralVerilogFull;
+            navigator.clipboard.writeText(codeToCopy);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        };
+
+
+        /* ============================================================
+           19. FILE OPERATIONS (SAVE / LOAD)
+           ============================================================ */
+
+        const {
+            executeActualDownload,
+            handleLoadWorkspace,
+            handleClearAll,
+        } = useFileOperations({
+            nodes, edges, customCodes, exposedPorts,
+            theme, recordHistory, setNodes, setEdges,
+            setCustomCodes, setExposedPorts, setSelectedNodeId,
+            setSelectedEdgeId, setGlowingNet, setTheme, setShowSaveModal, setShowClearModal,
         });
-        code += `\n  top_module uut (\n    .clk(clk),\n    .rst_n(rst_n)`;
-        validExposedKeys.forEach(key => {
-            const port = exposedPorts[key];
-            const node = nodes.find(n => n.id === port.nodeId);
-            const prefix = node ? node.data.instanceName : 'unknown';
-            const netName = `${prefix}_${port.portName}`;
-            code += `,\n    .${netName}(${netName})`;
-        });
-        code += `\n  );\n\n  initial begin\n    clk = 0;\n    forever #5 clk = ~clk;\n  end\n\n  initial begin\n    rst_n = 0;\n`;
-        mappedInputs.forEach(inputObj => {
-            code += `    ${inputObj.name} = ${inputObj.width}'b0;\n`;
-        });
-        code += `\n    #100;\n    rst_n = 1;\n    #20;\n\n`;
-        if (mappedInputs.length > 0) {
-            code += `    // --- Test Pattern Cycle A ---\n`;
-            mappedInputs.forEach((inputObj) => {
-                const val = inputObj.width > 1 ? `${inputObj.width}'hAA` : `1'b1`;
-                code += `    ${inputObj.name} = ${val};\n`;
-            });
-            code += `    #40;\n\n    // --- Test Pattern Cycle B ---\n`;
-            mappedInputs.forEach((inputObj) => {
-                const val = inputObj.width > 1 ? `${inputObj.width}'h55` : `1'b0`;
-                code += `    ${inputObj.name} = ${val};\n`;
-            });
-            code += `    #40;\n\n    // --- Test Pattern Cycle C ---\n`;
-            mappedInputs.forEach((inputObj, idx) => {
-                const val = inputObj.width > 1 ? `${inputObj.width}'hF0` : `${idx % 2 === 0 ? "1'b1" : "1'b0"}`;
-                code += `    ${inputObj.name} = ${val};\n`;
-            });
-            code += `    #40;\n`;
-        } else {
-            code += `    #200;\n`;
-        }
-        code += `\n    #100;\n    $display("[TB SUCCESS] Simulation cycles executed completely without hangs.");\n    $finish;\n  end\n\nendmodule\n`;
-        return code;
-    }, [exposedPorts, nodes]);
-
-    const handleCopyCode = () => {
-        const codeToCopy = topViewMode === 'testbench' ? testbenchCodeFull : structuralVerilogFull;
-        navigator.clipboard.writeText(codeToCopy);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
 
 
-    /* ============================================================
-       19. FILE OPERATIONS (SAVE / LOAD)
-       ============================================================ */
+        /* ============================================================
+           20. MODULE CREATION (CUSTOM & PREBUILT)
+           ============================================================ */
+        const [newModuleName, setNewModuleName] = useState('alu');
+        const [newInputs, setNewInputs] = useState('a[15:0], b[15:0], op[3:0]');
+        const [newOutputs, setNewOutputs] = useState('res[15:0], zero');
 
-    const {
-        executeActualDownload,
-        handleLoadWorkspace,
-        handleClearAll,
-    } = useFileOperations({
-        nodes, edges, customCodes, exposedPorts,
-        theme, recordHistory, setNodes, setEdges,
-        setCustomCodes, setExposedPorts, setSelectedNodeId,
-        setSelectedEdgeId, setGlowingNet, setTheme, setShowSaveModal, setShowClearModal,
-    });
+        const createBlock = (ev) => {
+            ev.preventDefault();
+            const cleanName = newModuleName.trim();
+            if (!cleanName) return;
 
+            if (nodes.some(n => n.data.moduleName === cleanName)) {
+                showError(`A module named '${cleanName}' already exists. Module names must be unique.`);
+                return;
+            }
 
-    /* ============================================================
-       20. MODULE CREATION (CUSTOM & PREBUILT)
-       ============================================================ */
-    const [newModuleName, setNewModuleName] = useState('alu');
-    const [newInputs, setNewInputs] = useState('a[15:0], b[15:0], op[3:0]');
-    const [newOutputs, setNewOutputs] = useState('res[15:0], zero');
+            const parsedInputs = parsePorts(newInputs);
+            const parsedOutputs = parsePorts(newOutputs);
 
-    const createBlock = (ev) => {
-        ev.preventDefault();
-        const cleanName = newModuleName.trim();
-        if (!cleanName) return;
+            const error = validatePorts(parsedInputs, parsedOutputs);
+            if (error) {
+                showError(error);
+                return;
+            }
+            recordHistory();
 
-        if (nodes.some(n => n.data.moduleName === cleanName)) {
-            showError(`A module named '${cleanName}' already exists. Module names must be unique.`);
-            return;
-        }
-
-        const parsedInputs = parsePorts(newInputs);
-        const parsedOutputs = parsePorts(newOutputs);
-
-        const error = validatePorts(parsedInputs, parsedOutputs);
-        if (error) {
-            showError(error);
-            return;
-        }
-        recordHistory();
-
-        const initialAutoRoute = {};
-        parsedInputs.forEach(p => { if (p.name === 'clk' || p.name === 'rst_n') initialAutoRoute[p.name] = true; });
-        const projectedPosition = screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
-        const spawnPos = getSmartSpawnPosition(nodes, projectedPosition.x - 90, projectedPosition.y - 60);
-        const instanceId = `u_${cleanName}_${Date.now().toString().slice(-4)}`;
+            const initialAutoRoute = {};
+            parsedInputs.forEach(p => { if (p.name === 'clk' || p.name === 'rst_n') initialAutoRoute[p.name] = true; });
+            const projectedPosition = screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+            const spawnPos = getSmartSpawnPosition(nodes, projectedPosition.x - 90, projectedPosition.y - 60);
+            const instanceId = `u_${cleanName}_${Date.now().toString().slice(-4)}`;
 
 
-        setNodes(nds => nds.concat({
-            id: instanceId,
-            type: 'hardware',
-            position: spawnPos,
-            data: {
-                moduleName: cleanName,
-                instanceName: instanceId,
-                theme,
-                inputs: parsedInputs,
-                outputs: parsePorts(newOutputs),
-                autoRoute: initialAutoRoute,
-                portsSwapped: false,
-                tieoffs: {},
-                exposedPorts: {},
-            },
-        }));
-    };
-
-    const spawnPrebuilt = (key) => {
-        recordHistory();
-        const conf = STANDARD_LIBRARY[key];
-        let counter = 0;
-        let newModuleName = `${key}_${counter}`;
-        while (nodes.some(n => n.data.moduleName === newModuleName)) { counter++; newModuleName = `${key}_${counter}`; }
-        const instanceId = `u_${newModuleName}_${Date.now().toString().slice(-4)}`;
-        const nodeType = conf.type || 'hardware';
-        const parsedInputs = parsePorts(conf.inputs);
-        const parsedOutputs = parsePorts(conf.outputs);
-        const initialAutoRoute = {};
-        parsedInputs.forEach(p => { if (p.name === 'clk' || p.name === 'rst_n') initialAutoRoute[p.name] = true; });
-        const projectedPosition = screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
-        const spawnPos = getSmartSpawnPosition(nodes, projectedPosition.x - 30, projectedPosition.y - 30);
-        setNodes(nds => nds.concat({
-            id: instanceId,
-            type: nodeType,
-            position: spawnPos,
-            data: {
-                moduleName: newModuleName,
-                instanceName: instanceId,
-                theme,
-                gateKey: key,
-                standardKey: key,
-                fixedPorts: conf.fixedPorts || [],
-                gateShape: conf.gateShape,
-                inputs: parsedInputs,
-                outputs: parsedOutputs,
-                autoRoute: initialAutoRoute,
-                isSplitter: conf.isSplitter,
-                isBundler: conf.isBundler,
-                portsSwapped: false,
-                tieoffs: {},
-                exposedPorts: {},
-            },
-        }));
-        if (nodeType === 'splitter') {
-            setCustomCodes(prev => ({
-                ...prev,
-                [newModuleName]: `// Structural Cell [${newModuleName}] handled via Top inline vector slice assignments.`
+            setNodes(nds => nds.concat({
+                id: instanceId,
+                type: 'hardware',
+                position: spawnPos,
+                data: {
+                    moduleName: cleanName,
+                    instanceName: instanceId,
+                    theme,
+                    inputs: parsedInputs,
+                    outputs: parsePorts(newOutputs),
+                    autoRoute: initialAutoRoute,
+                    portsSwapped: false,
+                    tieoffs: {},
+                    exposedPorts: {},
+                },
             }));
-            return;
-        }
-        setCustomCodes(prev => {
-            const portDecls = [];
-            parsedInputs.forEach(p => portDecls.push(`  input wire ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`));
-            parsedOutputs.forEach(p => portDecls.push(`  output logic ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`));
-            let code = `module ${newModuleName} (\n${portDecls.join(',\n')}\n);\n\n${conf.code}\n\nendmodule\n`;
-            return { ...prev, [newModuleName]: code };
-        });
-    };
+        };
+
+        const spawnPrebuilt = (key) => {
+            recordHistory();
+            const conf = STANDARD_LIBRARY[key];
+            let counter = 0;
+            let newModuleName = `${key}_${counter}`;
+            while (nodes.some(n => n.data.moduleName === newModuleName)) { counter++; newModuleName = `${key}_${counter}`; }
+            const instanceId = `u_${newModuleName}_${Date.now().toString().slice(-4)}`;
+            const nodeType = conf.type || 'hardware';
+            const parsedInputs = parsePorts(conf.inputs);
+            const parsedOutputs = parsePorts(conf.outputs);
+            const initialAutoRoute = {};
+            parsedInputs.forEach(p => { if (p.name === 'clk' || p.name === 'rst_n') initialAutoRoute[p.name] = true; });
+            const projectedPosition = screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+            const spawnPos = getSmartSpawnPosition(nodes, projectedPosition.x - 30, projectedPosition.y - 30);
+            setNodes(nds => nds.concat({
+                id: instanceId,
+                type: nodeType,
+                position: spawnPos,
+                data: {
+                    moduleName: newModuleName,
+                    instanceName: instanceId,
+                    theme,
+                    gateKey: key,
+                    standardKey: key,
+                    fixedPorts: conf.fixedPorts || [],
+                    gateShape: conf.gateShape,
+                    inputs: parsedInputs,
+                    outputs: parsedOutputs,
+                    autoRoute: initialAutoRoute,
+                    isSplitter: conf.isSplitter,
+                    isBundler: conf.isBundler,
+                    portsSwapped: false,
+                    tieoffs: {},
+                    exposedPorts: {},
+                },
+            }));
+            if (nodeType === 'splitter') {
+                setCustomCodes(prev => ({
+                    ...prev,
+                    [newModuleName]: `// Structural Cell [${newModuleName}] handled via Top inline vector slice assignments.`
+                }));
+                return;
+            }
+            setCustomCodes(prev => {
+                const portDecls = [];
+                parsedInputs.forEach(p => portDecls.push(`  input wire ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`));
+                parsedOutputs.forEach(p => portDecls.push(`  output logic ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`));
+                let code = `module ${newModuleName} (\n${portDecls.join(',\n')}\n);\n\n${conf.code}\n\nendmodule\n`;
+                return { ...prev, [newModuleName]: code };
+            });
+        };
 
 
-    /* ============================================================
-       21. LAYOUT & SEARCH / TRACE HELPERS
-       ============================================================ */
-    const arrangeTopologicalLayout = () => {
-        if (nodes.length === 0) return;
-        recordHistory();
-        const adj = {};
-        const inDegree = {};
-        const nodeColumn = {};
-        nodes.forEach(n => {
-            adj[n.id] = [];
-            inDegree[n.id] = 0;
-            nodeColumn[n.id] = 0;
-        });
-        edges.forEach(e => {
-            if (adj[e.source] && adj[e.target] !== undefined) {
-                adj[e.source].push(e.target);
-                inDegree[e.target]++;
-            }
-        });
-        const queue = [];
-        nodes.forEach(n => {
-            if (inDegree[n.id] === 0) {
-                queue.push(n.id);
-            }
-        });
-        while (queue.length > 0) {
-            const u = queue.shift();
-            const currentLayer = nodeColumn[u];
-            adj[u].forEach(v => {
-                nodeColumn[v] = Math.max(nodeColumn[v], currentLayer + 1);
-                inDegree[v]--;
-                if (inDegree[v] === 0) {
-                    queue.push(v);
+        /* ============================================================
+           21. LAYOUT & SEARCH / TRACE HELPERS
+           ============================================================ */
+        const arrangeTopologicalLayout = () => {
+            if (nodes.length === 0) return;
+            recordHistory();
+            const adj = {};
+            const inDegree = {};
+            const nodeColumn = {};
+            nodes.forEach(n => {
+                adj[n.id] = [];
+                inDegree[n.id] = 0;
+                nodeColumn[n.id] = 0;
+            });
+            edges.forEach(e => {
+                if (adj[e.source] && adj[e.target] !== undefined) {
+                    adj[e.source].push(e.target);
+                    inDegree[e.target]++;
                 }
             });
-        }
-        const columnGroups = {};
-        Object.entries(nodeColumn).forEach(([id, col]) => {
-            if (!columnGroups[col]) columnGroups[col] = [];
-            columnGroups[col].push(id);
-        });
-        const startX = 60;
-        const startY = 100;
-        const columnSpacing = 280;
-        const rowSpacing = 160;
-        setNodes(currentNodes => {
-            return currentNodes.map(node => {
-                const col = nodeColumn[node.id] ?? 0;
-                const colNodes = columnGroups[col] || [node.id];
-                const rowIndex = colNodes.indexOf(node.id);
-                return {
-                    ...node,
-                    position: {
-                        x: startX + col * columnSpacing,
-                        y: startY + rowIndex * rowSpacing
+            const queue = [];
+            nodes.forEach(n => {
+                if (inDegree[n.id] === 0) {
+                    queue.push(n.id);
+                }
+            });
+            while (queue.length > 0) {
+                const u = queue.shift();
+                const currentLayer = nodeColumn[u];
+                adj[u].forEach(v => {
+                    nodeColumn[v] = Math.max(nodeColumn[v], currentLayer + 1);
+                    inDegree[v]--;
+                    if (inDegree[v] === 0) {
+                        queue.push(v);
                     }
-                };
-            });
-        });
-        setTimeout(() => {
-            fitView({ duration: 500, padding: 0.2 });
-        }, 50);
-    };
-
-    const moduleSearchResults = useMemo(() => {
-        if (!moduleSearchQuery.trim()) return [];
-        const q = moduleSearchQuery.toLowerCase();
-        return nodes.filter(n => n.data.moduleName?.toLowerCase().includes(q) || n.data.instanceName?.toLowerCase().includes(q));
-    }, [moduleSearchQuery, nodes]);
-
-    const jumpToNode = useCallback((node) => {
-        setSelectedNodeId(node.id);
-        setSelectedEdgeId(null);
-        setGlowingNet(null);
-        setCenter(node.position.x + 90, node.position.y + 60, { zoom: 1.2, duration: 500 });
-        setSearchHighlightIds(new Set([node.id]));
-        setNodes(nds => nds.map(n => n.id === node.id ? { ...n, data: { ...n.data, isDrcFlashing: true } } : n));
-        setTimeout(() => {
-            setNodes(nds => nds.map(n => n.id === node.id ? { ...n, data: { ...n.data, isDrcFlashing: false } } : n));
-        }, 1600);
-    }, [setCenter, setNodes, setSearchHighlightIds, setSelectedNodeId, setSelectedEdgeId, setGlowingNet]);
-
-    const handleModuleSearchKey = (e) => {
-        if (moduleSearchResults.length === 0) return;
-        if (e.key === 'ArrowDown') { e.preventDefault(); setModuleSearchFocusIdx(i => Math.min(i + 1, moduleSearchResults.length - 1)); }
-        if (e.key === 'ArrowUp') { e.preventDefault(); setModuleSearchFocusIdx(i => Math.max(i - 1, 0)); }
-        if (e.key === 'Enter') { jumpToNode(moduleSearchResults[moduleSearchFocusIdx]); }
-        if (e.key === 'Escape') { setModuleSearchQuery(''); setSearchHighlightIds(new Set()); }
-    };
-
-    const buildHierarchyResult = (query) => {
-        const q = query.toLowerCase().trim();
-        if (!q) { setHierarchyResults(null); return; }
-        const matchedNodes = nodes.filter(n => n.data.moduleName?.toLowerCase().includes(q) || n.data.instanceName?.toLowerCase().includes(q));
-        if (matchedNodes.length === 0) { setHierarchyResults([]); return; }
-        const results = matchedNodes.map(node => {
-            const drivers = edges.filter(e => e.target === node.id).map(e => {
-                const srcNode = nodes.find(n => n.id === e.source);
-                const w = (srcNode?.data.outputs || []).find(p => p.name === e.sourceHandle)?.width || e.data?.bitWidth || 1;
-                return { edgeId: e.id, sourceNodeId: e.source, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle, srcModuleName: srcNode?.data.moduleName || '?', srcInstanceName: srcNode?.data.instanceName || '?', bitWidth: w };
-            });
-            const fanout = edges.filter(e => e.source === node.id).map(e => {
-                const tgtNode = nodes.find(n => n.id === e.target);
-                const w = (tgtNode?.data.inputs || []).find(p => p.name === e.targetHandle)?.width || e.data?.bitWidth || 1;
-                return { edgeId: e.id, targetNodeId: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle, tgtModuleName: tgtNode?.data.moduleName || '?', tgtInstanceName: tgtNode?.data.instanceName || '?', bitWidth: w };
-            });
-            const fanoutByPort = {};
-            fanout.forEach(f => { if (!fanoutByPort[f.sourceHandle]) fanoutByPort[f.sourceHandle] = []; fanoutByPort[f.sourceHandle].push(f); });
-            const unconnectedInputs = (node.data.inputs || []).filter(p => !edges.some(e => e.target === node.id && e.targetHandle === p.name) && !node.data.autoRoute?.[p.name] && !node.data.tieoffs?.[p.name]);
-            return { node, drivers, fanoutByPort, unconnectedInputs };
-        });
-        setHierarchyResults(results);
-        setHierarchyExpanded({});
-    };
-
-    const highlightNetPath = (edgeId, nodeId) => {
-        setSearchHighlightIds(new Set([nodeId]));
-        setSelectedEdgeId(edgeId);
-        setSelectedNodeId(null);
-        setGlowingNet(null);
-        setTraceGlowingEdgeId(edgeId);
-        
-        setEdges(eds => eds.map(e =>
-            e.id === edgeId
-                ? { ...e, selected: true, data: { ...e.data, isFlashing: true } }
-                : { ...e, selected: false, data: { ...e.data, isFlashing: false } }
-        ));
-        
-        setTimeout(() => {
-            setEdges(eds => eds.map(e =>
-                e.id === edgeId ? { ...e, data: { ...e.data, isFlashing: false } } : e
-            ));
-        }, 1600);
-
-        // FIX: Delay the camera pan by a fraction of a second (50ms).
-        // This prevents React Flow from aborting the animation due to the 
-        // immediate 'edges' array mutations happening above and in your useEffects.
-        setTimeout(() => {
-            const n = nodes.find(nd => nd.id === nodeId);
-            if (n && n.position) {
-                // Matched the exact zoom and duration parameters from your jumpToNode function
-                setCenter(n.position.x + 90, n.position.y + 60, { zoom: 1.2, duration: 500 });
+                });
             }
-        }, 50);
-    };
+            const columnGroups = {};
+            Object.entries(nodeColumn).forEach(([id, col]) => {
+                if (!columnGroups[col]) columnGroups[col] = [];
+                columnGroups[col].push(id);
+            });
+            const startX = 60;
+            const startY = 100;
+            const columnSpacing = 280;
+            const rowSpacing = 160;
+            setNodes(currentNodes => {
+                return currentNodes.map(node => {
+                    const col = nodeColumn[node.id] ?? 0;
+                    const colNodes = columnGroups[col] || [node.id];
+                    const rowIndex = colNodes.indexOf(node.id);
+                    return {
+                        ...node,
+                        position: {
+                            x: startX + col * columnSpacing,
+                            y: startY + rowIndex * rowSpacing
+                        }
+                    };
+                });
+            });
+            setTimeout(() => {
+                fitView({ duration: 500, padding: 0.2 });
+            }, 50);
+        };
+
+        const moduleSearchResults = useMemo(() => {
+            if (!moduleSearchQuery.trim()) return [];
+            const q = moduleSearchQuery.toLowerCase();
+            return nodes.filter(n => n.data.moduleName?.toLowerCase().includes(q) || n.data.instanceName?.toLowerCase().includes(q));
+        }, [moduleSearchQuery, nodes]);
+
+        const jumpToNode = useCallback((node) => {
+            setSelectedNodeId(node.id);
+            setSelectedEdgeId(null);
+            setGlowingNet(null);
+            setCenter(node.position.x + 90, node.position.y + 60, { zoom: 1.2, duration: 500 });
+            setSearchHighlightIds(new Set([node.id]));
+            setNodes(nds => nds.map(n => n.id === node.id ? { ...n, data: { ...n.data, isDrcFlashing: true } } : n));
+            setTimeout(() => {
+                setNodes(nds => nds.map(n => n.id === node.id ? { ...n, data: { ...n.data, isDrcFlashing: false } } : n));
+            }, 1600);
+        }, [setCenter, setNodes, setSearchHighlightIds, setSelectedNodeId, setSelectedEdgeId, setGlowingNet]);
+
+        const handleModuleSearchKey = (e) => {
+            if (moduleSearchResults.length === 0) return;
+            if (e.key === 'ArrowDown') { e.preventDefault(); setModuleSearchFocusIdx(i => Math.min(i + 1, moduleSearchResults.length - 1)); }
+            if (e.key === 'ArrowUp') { e.preventDefault(); setModuleSearchFocusIdx(i => Math.max(i - 1, 0)); }
+            if (e.key === 'Enter') { jumpToNode(moduleSearchResults[moduleSearchFocusIdx]); }
+            if (e.key === 'Escape') { setModuleSearchQuery(''); setSearchHighlightIds(new Set()); }
+        };
+
+        const buildHierarchyResult = (query) => {
+            const q = query.toLowerCase().trim();
+            if (!q) { setHierarchyResults(null); return; }
+            const matchedNodes = nodes.filter(n => n.data.moduleName?.toLowerCase().includes(q) || n.data.instanceName?.toLowerCase().includes(q));
+            if (matchedNodes.length === 0) { setHierarchyResults([]); return; }
+            const results = matchedNodes.map(node => {
+                const drivers = edges.filter(e => e.target === node.id).map(e => {
+                    const srcNode = nodes.find(n => n.id === e.source);
+                    const w = (srcNode?.data.outputs || []).find(p => p.name === e.sourceHandle)?.width || e.data?.bitWidth || 1;
+                    return { edgeId: e.id, sourceNodeId: e.source, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle, srcModuleName: srcNode?.data.moduleName || '?', srcInstanceName: srcNode?.data.instanceName || '?', bitWidth: w };
+                });
+                const fanout = edges.filter(e => e.source === node.id).map(e => {
+                    const tgtNode = nodes.find(n => n.id === e.target);
+                    const w = (tgtNode?.data.inputs || []).find(p => p.name === e.targetHandle)?.width || e.data?.bitWidth || 1;
+                    return { edgeId: e.id, targetNodeId: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle, tgtModuleName: tgtNode?.data.moduleName || '?', tgtInstanceName: tgtNode?.data.instanceName || '?', bitWidth: w };
+                });
+                const fanoutByPort = {};
+                fanout.forEach(f => { if (!fanoutByPort[f.sourceHandle]) fanoutByPort[f.sourceHandle] = []; fanoutByPort[f.sourceHandle].push(f); });
+                const unconnectedInputs = (node.data.inputs || []).filter(p => !edges.some(e => e.target === node.id && e.targetHandle === p.name) && !node.data.autoRoute?.[p.name] && !node.data.tieoffs?.[p.name]);
+                return { node, drivers, fanoutByPort, unconnectedInputs };
+            });
+            setHierarchyResults(results);
+            setHierarchyExpanded({});
+        };
+
+        const highlightNetPath = useCallback((edgeId, nodeId) => {
+            setSearchHighlightIds(new Set([nodeId]));
+            setSelectedEdgeId(edgeId);
+            setSelectedNodeId(null);
+            setGlowingNet(null);
+            setTraceGlowingEdgeId(edgeId);
+
+            setEdges(eds => eds.map(e =>
+                e.id === edgeId
+                    ? { ...e, selected: true, data: { ...e.data, isFlashing: true } }
+                    : { ...e, selected: false, data: { ...e.data, isFlashing: false } }
+            ));
+
+            setTimeout(() => {
+                setEdges(eds => eds.map(e =>
+                    e.id === edgeId ? { ...e, data: { ...e.data, isFlashing: false } } : e
+                ));
+            }, 1600);
+
+            setTimeout(() => {
+                setNodes(currentNodes => {
+                    const n = currentNodes.find(nd => nd.id === nodeId);
+                    if (n && n.position) {
+                        setCenter(n.position.x + 90, n.position.y + 60, { zoom: 1.2, duration: 500 });
+                    }
+                    return currentNodes; // don't actually update nodes
+                });
+            }, 50);
+        }, [setEdges, setCenter, setNodes]); // only stable setters + hooks from React Flow
 
 
-    /* ============================================================
-       22. TOP SYMBOL RENDERER
+        /* ============================================================
+           21b. VERILOG-TO-SCHEMATIC INTERACTIVE CODE SYNC
+           ============================================================ */
+        const handleVerilogLineClick = useCallback((lineText) => {
+            const cleanText = lineText.trim();
+            if (!cleanText || cleanText.startsWith("//")) return;
+
+            // Match wire name pattern: w_targetNodeId_targetPortName
+            const wireMatch = cleanText.match(/w_([a-zA-Z0-9_]+)_([a-zA-Z0-9_]+)/);
+            if (wireMatch) {
+                const targetNodeId = wireMatch[1];
+                const targetPortName = wireMatch[2];
+
+                // 1-to-1 Deterministic Find!
+                const matchingEdge = edges.find(e =>
+                    e && e.target === targetNodeId && e.targetHandle === targetPortName
+                );
+
+                if (matchingEdge) {
+                    // Highlight the unique wire and center camera on its sink destination block
+                    highlightNetPath(matchingEdge.id, targetNodeId);
+                    return;
+                }
+            }
+
+            // 2. Component Instantiations mapping
+            const matchingNode = nodes.find(node => {
+                if (!node) return false;
+                const instName = node.data?.instanceName;
+                const modName = node.data?.moduleName;
+                const instRegex = new RegExp(`\\b${instName}\\b`);
+                const modRegex = new RegExp(`\\b${modName}\\b`);
+                return instRegex.test(cleanText) || modRegex.test(cleanText);
+            });
+
+            if (matchingNode) {
+                jumpToNode(matchingNode);
+            }
+        }, [nodes, edges, jumpToNode, highlightNetPath]);
+
+
+        /* ============================================================
+           22. TOP SYMBOL RENDERER
+           ============================================================ */
+
+        <TopSymbolView
+            exposedPorts={exposedPorts}
+            nodes={nodes}
+            theme={theme}
+        />
+
+
+        /* ============================================================
+           23. MODAL DRAG HANDLING
+           ============================================================ */
+        const handleModalDragStart = (e) => {
+            if (e.target.closest('input, textarea, button, select')) return;
+            dragStartRef.current = {
+                startX: e.clientX,
+                startY: e.clientY,
+                initialX: modalPos.x,
+                initialY: modalPos.y
+            };
+            document.addEventListener('mousemove', handleModalDragMove);
+            document.addEventListener('mouseup', handleModalDragEnd);
+        };
+
+        const handleModalDragMove = (e) => {
+            if (!dragStartRef.current) return;
+            const { startX, startY, initialX, initialY } = dragStartRef.current;
+            setModalPos({
+                x: initialX + (e.clientX - startX),
+                y: initialY + (e.clientY - startY)
+            });
+        };
+
+        const handleModalDragEnd = () => {
+            dragStartRef.current = null;
+            document.removeEventListener('mousemove', handleModalDragMove);
+            document.removeEventListener('mouseup', handleModalDragEnd);
+        };
+
+        /* ============================================================
+           24. STYLES
+           ============================================================ */
+        const s = getStyles(t, leftCollapsed, rightCollapsed, leftWidth, rightWidth, draggingLeft || draggingRight);
+        const toolbarBtn = {
+            ...s.iconBtn,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '7px',
+            padding: '8px 14px',
+            fontSize: '13px',
+            fontWeight: 600,
+            border: `1px solid ${t.border}`,
+            borderRadius: '10px',
+            background: `linear-gradient(180deg, ${t.bgSecondary} 0%, ${t.bgTertiary} 100%)`,
+            color: t.textSecondary,
+            cursor: 'pointer',
+            transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+            minHeight: '34px',
+            boxSizing: 'border-box',
+            backdropFilter: 'blur(8px)',
+            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 3px ${t.shadow}`,
+            width: 'auto',  // override iconBtn
+            height: 'auto'  // override iconBtn
+        }
+
+
+        /* ============================================================
+           25. KEYBOARD SHORTCUT STYLE
+           ============================================================ */
+        const kbdStyle = {
+            background: t.bgTertiary,
+            border: `1px solid ${t.borderStrong}`,
+            borderRadius: '4px',
+            padding: '2px 8px',
+            fontSize: '11px',
+            fontFamily: 'monospace',
+            color: t.textHeading,
+            justifySelf: 'start',
+            minWidth: '40px',
+            textAlign: 'center',
+            boxShadow: `0 2px 0 ${t.borderStrong}`
+        };
+
+
+
+        /* ============================================================
+        26. AUTO-SAVE & AUTO-LOAD SYSTEM (LocalStorage Persist)
        ============================================================ */
-    const renderTopSymbol = () => {
-        const inputs = Object.values(exposedPorts).filter(p => p.isInput).map(p => {
-            const node = nodes.find(n => n.id === p.nodeId);
-            return { name: `${node ? node.data.instanceName : 'u'}_${p.portName}`, width: p.width, msb: p.msb, lsb: p.lsb };
-        });
-        const outputs = Object.values(exposedPorts).filter(p => !p.isInput).map(p => {
-            const node = nodes.find(n => n.id === p.nodeId);
-            return { name: `${node ? node.data.instanceName : 'u'}_${p.portName}`, width: p.width, msb: p.msb, lsb: p.lsb };
-        });
-        const usesClk = nodes.some(n => (n.data.autoRoute || {})['clk']);
-        const usesRst = nodes.some(n => (n.data.autoRoute || {})['rst_n']);
-        if (usesClk) inputs.unshift({ name: 'clk', width: 1 });
-        if (usesRst) inputs.unshift({ name: 'rst_n', width: 1 });
-        const isDark = theme === 'dark';
-        const panelBg = isDark ? '#000000' : '#f9fafb';
-        const cardBg = isDark ? '#050505' : '#ffffff';
-        const cardBorder = isDark ? '#333333' : '#cbd5e1';
-        const textPrimary = isDark ? '#ffffff' : '#111827';
-        const textSecondary = isDark ? '#888888' : '#6b7280';
-        const textPort = isDark ? '#e2e8f0' : '#374151';
-        const buttonStyle = { background: cardBg, border: `1px solid ${cardBorder}`, color: textPrimary, cursor: 'pointer', borderRadius: '4px', padding: '4px 10px', fontSize: '14px', fontFamily: 'monospace', lineHeight: 1 };
+
+        const [isHydrated, setIsHydrated] = useState(false);
+
+        // 1. AUTO-LOAD: Runs ONCE when the component mounts
+        useEffect(() => {
+            const savedData = localStorage.getItem('axon_interlink_workspace');
+            if (savedData) {
+                try {
+                    const parsed = JSON.parse(savedData);
+
+                    requestAnimationFrame(() => {
+                        if (parsed.nodes) setNodes(parsed.nodes);
+                        if (parsed.edges) setEdges(parsed.edges);
+                        if (parsed.customCodes) setCustomCodes(parsed.customCodes);
+                        if (parsed.exposedPorts) setExposedPorts(parsed.exposedPorts);
+                        if (parsed.theme) setTheme(parsed.theme);
+                        setIsHydrated(true);
+                    });
+
+                } catch (error) {
+                    console.error("Failed to parse auto-saved workspace data:", error);
+                    requestAnimationFrame(() => {
+                        setIsHydrated(true);
+                    });
+                }
+            } else {
+                requestAnimationFrame(() => {
+                    setIsHydrated(true);
+                });
+            }
+        }, [setNodes, setEdges, setCustomCodes, setExposedPorts, setTheme, setIsHydrated]);
+
+        // 2. AUTO-SAVE: Runs every time a critical state changes
+        useEffect(() => {
+            if (!isHydrated) return;
+
+            const dataToSave = {
+                nodes,
+                edges,
+                customCodes,
+                exposedPorts,
+                theme
+            };
+            localStorage.setItem('axon_interlink_workspace', JSON.stringify(dataToSave));
+        }, [nodes, edges, customCodes, exposedPorts, theme, isHydrated]);
+
+
+
+        /* ============================================================
+           27. RENDER
+           ============================================================ */
         return (
-            <div style={{ height: '100%', width: '100%', background: panelBg, position: 'relative' }}>
-                <TransformWrapper initialScale={1} minScale={0.2} maxScale={4} wheel={{ step: 0.009, smoothStep: 0.001, disabled: false }} centerOnInit={true} limitToBounds={false}>
-                    {({ zoomIn, zoomOut, resetTransform, state }) => (
-                        <>
-                            <div style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 10, display: 'flex', gap: '6px', background: cardBg, border: `1px solid ${cardBorder}`, borderRadius: '6px', padding: '6px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
-                                <button onClick={() => zoomIn()} style={buttonStyle}>+</button>
-                                <button onClick={() => zoomOut()} style={buttonStyle}>-</button>
-                                <button onClick={() => resetTransform()} style={buttonStyle}>⟲</button>
-                                <div style={{ color: textSecondary, fontSize: '11px', alignSelf: 'center', fontFamily: 'monospace', minWidth: '45px', textAlign: 'center' }}>{Math.round(state.scale * 100)}%</div>
-                            </div>
-                            <TransformComponent wrapperStyle={{ width: "100%", height: "100%" }} contentStyle={{ width: "100%", height: "100%", display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <div style={{ background: cardBg, border: `1px solid ${cardBorder}`, borderRadius: '8px', minWidth: '220px', padding: '14px', boxShadow: '0 4px 12px rgba(0,0,0,0.25)', fontFamily: 'monospace', userSelect: 'none' }}>
-                                    <div style={{ borderBottom: `1px solid ${cardBorder}`, paddingBottom: '8px', marginBottom: '12px' }}>
-                                        <div style={{ fontWeight: 600, fontSize: '14px', color: textPrimary }}>top_module</div>
-                                        <div style={{ fontSize: '11px', color: textSecondary }}>system_top</div>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '24px' }}>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
-                                            <div style={{ fontSize: '10px', color: '#10b981', fontWeight: 'bold', marginBottom: '2px' }}>INPUTS</div>
-                                            {inputs.map((p, idx) => (
-                                                <div key={`top_in_${idx}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                    <div style={{ width: '6px', height: '6px', background: '#10b981', borderRadius: '50%' }} />
-                                                    <span style={{ fontSize: '11px', color: textPort, whiteSpace: 'nowrap' }}>{p.width > 1 ? `${p.name}[${p.msb ?? p.width - 1}:${p.lsb ?? 0}]` : p.name}</span>
-                                                </div>
-                                            ))}
-                                            {inputs.length === 0 && <span style={{ fontSize: '11px', color: textSecondary, fontStyle: 'italic' }}>None</span>}
-                                        </div>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
-                                            <div style={{ fontSize: '10px', color: '#f59e0b', fontWeight: 'bold', marginBottom: '2px' }}>OUTPUTS</div>
-                                            {outputs.map((p, idx) => (
-                                                <div key={`top_out_${idx}`} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexDirection: 'row-reverse' }}>
-                                                    <div style={{ width: '6px', height: '6px', background: '#f59e0b', borderRadius: '50%' }} />
-                                                    <span style={{ fontSize: '11px', color: textPort, whiteSpace: 'nowrap' }}>{p.width > 1 ? `${p.name}[${p.msb ?? p.width - 1}:${p.lsb ?? 0}]` : p.name}</span>
-                                                </div>
-                                            ))}
-                                            {outputs.length === 0 && <span style={{ fontSize: '11px', color: textSecondary, fontStyle: 'italic' }}>None</span>}
-                                        </div>
-                                    </div>
-                                </div>
-                            </TransformComponent>
-                        </>
-                    )}
-                </TransformWrapper>
+            <div style={s.app}>
+                {/* HEADER */}
+                <Header s={s} theme={theme} t={t} nodes={nodes} warnings={warnings} edges={edges} undo={undo} toolbarBtn={toolbarBtn} past={past} redo={redo} future={future} handleLoadWorkspace={handleLoadWorkspace} handleSaveWorkspace={handleSaveWorkspace} fileInputRef={fileInputRef} setShowClearModal={setShowClearModal} setShowHelp={setShowHelp} setTheme={setTheme} helpColors={helpColors} arrangeTopologicalLayout={arrangeTopologicalLayout} />
+
+                {/* CONTEXTUAL MODAL (NODE / EDGE CONFIG) */}
+                <ContextualModal activeModal={activeModal} modalPos={modalPos} nodes={nodes} edges={edges} theme={theme} t={t} s={s} modalTab={modalTab} setModalTab={setModalTab} exposedPorts={exposedPorts} currentModuleCode={currentModuleCode} handleModalDragStart={handleModalDragStart} setActiveModal={setActiveModal} updateSelectedNode={updateSelectedNode} togglePortSwap={togglePortSwap} toggleExposePort={toggleExposePort} handleCodeChange={handleCodeChange} getPortLabel={getPortLabel} parsePorts={parsePorts} recordHistory={recordHistory} setNodes={setNodes} setEdges={setEdges} setSelectedNodeId={setSelectedNodeId} setSelectedEdgeId={setSelectedEdgeId} setGlowingNet={setGlowingNet} highlightVerilogCode={highlightVerilogCode} />
+
+                {/* CLEAR MODAL */}
+                <ClearModal showClearModal={showClearModal} theme={theme} setShowClearModal={setShowClearModal} t={t} handleClearAll={handleClearAll} s={s} />
+
+                {/* SAVE MODAL */}
+                <SaveModal theme={theme} setShowSaveModal={setShowSaveModal} setProposedFileName={setProposedFileName} proposedFileName={proposedFileName} executeActualDownload={executeActualDownload} showSaveModal={showSaveModal} t={t} s={s} />
+
+                {/* HELP MODAL */}
+                <HelpModal showHelp={showHelp} setShowHelp={setShowHelp} t={t} theme={theme} kbdStyle={kbdStyle} />
+
+                {/* ERROR MODAL */}
+                <ErrorModal errorModal={errorModal} theme={theme} setErrorModal={setErrorModal} t={t} s={s} />
+
+                {/* MAIN LAYOUT */}
+                <div style={s.main} ref={mainRef}>
+                    <LeftPanel leftCollapsed={leftCollapsed} setLeftTab={setLeftTab} setLeftCollapsed={setLeftCollapsed} leftTab={leftTab} theme={theme} t={t} s={s} leftWidth={leftWidth} setIsLibOpen={setIsLibOpen} createBlock={createBlock} setSelectedStandardBlock={setSelectedStandardBlock} spawnPrebuilt={spawnPrebuilt} selectedStandardBlock={selectedStandardBlock} setSelectedEdgeId={setSelectedEdgeId} setSelectedNodeId={setSelectedNodeId} isLibOpen={isLibOpen} newModuleName={newModuleName} setNewModuleName={setNewModuleName} setNewInputs={setNewInputs} setNewOutputs={setNewOutputs} nodes={nodes} edges={edges} newInputs={newInputs} newOutputs={newOutputs} exposedPorts={exposedPorts} setCenter={setCenter} setNodes={setNodes} searchInputRef={searchInputRef} moduleSearchQuery={moduleSearchQuery} setModuleSearchFocusIdx={setModuleSearchFocusIdx} jumpToNode={jumpToNode} setSearchHighlightIds={setSearchHighlightIds} setModuleSearchQuery={setModuleSearchQuery} handleModuleSearchKey={handleModuleSearchKey} moduleSearchResults={moduleSearchResults} moduleSearchFocusIdx={moduleSearchFocusIdx} hierarchyExpanded={hierarchyExpanded} hierarchyResults={hierarchyResults} setHierarchyExpanded={setHierarchyExpanded} setHierarchyResults={setHierarchyResults} setHierarchySearchQuery={setHierarchySearchQuery} hierarchySearchQuery={hierarchySearchQuery} hierarchyInputRef={hierarchyInputRef} highlightNetPath={highlightNetPath} buildHierarchyResult={buildHierarchyResult} />
+                    {!leftCollapsed && <ResizeHandle onMouseDown={onMouseDownLeft} isDragging={draggingLeft} />}
+
+                    <Canvas nodes={nodes} edges={edges} onNodeClick={onNodeClick} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onReconnect={onReconnect} onEdgeClick={onEdgeClick} onPaneClick={onPaneClick} edgeTypes={edgeTypes} nodeTypes={nodeTypes} recordHistory={recordHistory} ConnectionMode={ConnectionMode} t={t} s={s}  isValidConnection={isValidConnection} />
+                    {!rightCollapsed && <ResizeHandle onMouseDown={onMouseDownRight} isDragging={draggingRight} />}
+
+                    <RightPanel s={s} setTopViewMode={setTopViewMode} setRightCollapsed={setRightCollapsed} rightCollapsed={rightCollapsed} topViewMode={topViewMode} t={t} theme={theme}
+                        exposedPorts={exposedPorts} nodes={nodes} handleVerilogLineClick={handleVerilogLineClick}
+                        structuralVerilogFull={structuralVerilogFull} testbenchCodeFull={testbenchCodeFull} copied={copied} handleCopyCode={handleCopyCode} rightWidth={rightWidth} />
+                </div>
             </div>
         );
-    };
-
-
-    /* ============================================================
-       23. MODAL DRAG HANDLING
-       ============================================================ */
-    const handleModalDragStart = (e) => {
-        if (e.target.closest('input, textarea, button, select')) return;
-        dragStartRef.current = {
-            startX: e.clientX,
-            startY: e.clientY,
-            initialX: modalPos.x,
-            initialY: modalPos.y
-        };
-        document.addEventListener('mousemove', handleModalDragMove);
-        document.addEventListener('mouseup', handleModalDragEnd);
-    };
-
-    const handleModalDragMove = (e) => {
-        if (!dragStartRef.current) return;
-        const { startX, startY, initialX, initialY } = dragStartRef.current;
-        setModalPos({
-            x: initialX + (e.clientX - startX),
-            y: initialY + (e.clientY - startY)
-        });
-    };
-
-    const handleModalDragEnd = () => {
-        dragStartRef.current = null;
-        document.removeEventListener('mousemove', handleModalDragMove);
-        document.removeEventListener('mouseup', handleModalDragEnd);
-    };
-
-    /* ============================================================
-       24. STYLES
-       ============================================================ */
-    const s = getStyles(t, leftCollapsed, rightCollapsed, leftWidth, rightWidth, draggingLeft || draggingRight);
-    const toolbarBtn = {
-        ...s.iconBtn,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '7px',
-        padding: '8px 14px',
-        fontSize: '13px',
-        fontWeight: 600,
-        border: `1px solid ${t.border}`,
-        borderRadius: '10px',
-        background: `linear-gradient(180deg, ${t.bgSecondary} 0%, ${t.bgTertiary} 100%)`,
-        color: t.textSecondary,
-        cursor: 'pointer',
-        transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-        whiteSpace: 'nowrap',
-        flexShrink: 0,
-        minHeight: '34px',
-        boxSizing: 'border-box',
-        backdropFilter: 'blur(8px)',
-        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 3px ${t.shadow}`,
-        width: 'auto',  // override iconBtn
-        height: 'auto'  // override iconBtn
     }
-
-
-    /* ============================================================
-       25. KEYBOARD SHORTCUT STYLE
-       ============================================================ */
-    const kbdStyle = {
-        background: t.bgTertiary,
-        border: `1px solid ${t.borderStrong}`,
-        borderRadius: '4px',
-        padding: '2px 8px',
-        fontSize: '11px',
-        fontFamily: 'monospace',
-        color: t.textHeading,
-        justifySelf: 'start',
-        minWidth: '40px',
-        textAlign: 'center',
-        boxShadow: `0 2px 0 ${t.borderStrong}`
-    };
-
-
-    /* ============================================================
-    26. AUTO-SAVE & AUTO-LOAD SYSTEM (LocalStorage Persist)
-   ============================================================ */
-
-    const [isHydrated, setIsHydrated] = useState(false);
-
-    // 1. AUTO-LOAD: Runs ONCE when the component mounts
-    useEffect(() => {
-        const savedData = localStorage.getItem('axon_interlink_workspace');
-        if (savedData) {
-            try {
-                const parsed = JSON.parse(savedData);
-
-                requestAnimationFrame(() => {
-                    if (parsed.nodes) setNodes(parsed.nodes);
-                    if (parsed.edges) setEdges(parsed.edges);
-                    if (parsed.customCodes) setCustomCodes(parsed.customCodes);
-                    if (parsed.exposedPorts) setExposedPorts(parsed.exposedPorts);
-                    if (parsed.theme) setTheme(parsed.theme);
-                    setIsHydrated(true);
-                });
-
-            } catch (error) {
-                console.error("Failed to parse auto-saved workspace data:", error);
-                requestAnimationFrame(() => {
-                    setIsHydrated(true);
-                });
-            }
-        } else {
-            requestAnimationFrame(() => {
-                setIsHydrated(true);
-            });
-        }
-    }, [setNodes, setEdges, setCustomCodes, setExposedPorts, setTheme, setIsHydrated]);
-
-    // 2. AUTO-SAVE: Runs every time a critical state changes
-    useEffect(() => {
-        if (!isHydrated) return;
-
-        const dataToSave = {
-            nodes,
-            edges,
-            customCodes,
-            exposedPorts,
-            theme
-        };
-        localStorage.setItem('axon_interlink_workspace', JSON.stringify(dataToSave));
-    }, [nodes, edges, customCodes, exposedPorts, theme, isHydrated]);
-    
-
-
-    /* ============================================================
-       27. RENDER
-       ============================================================ */
-    return (
-        <div style={s.app}>
-            {/* HEADER */}
-            <Header s={s} theme={theme} t={t} nodes={nodes} warnings={warnings} edges={edges} undo={undo} toolbarBtn={toolbarBtn} past={past} redo={redo} future={future} handleLoadWorkspace={handleLoadWorkspace} handleSaveWorkspace={handleSaveWorkspace} fileInputRef={fileInputRef} setShowClearModal={setShowClearModal} setShowHelp={setShowHelp} setTheme={setTheme} helpColors={helpColors} arrangeTopologicalLayout={arrangeTopologicalLayout} />
-
-            {/* CONTEXTUAL MODAL (NODE / EDGE CONFIG) */}
-            <ContextualModal activeModal={activeModal} modalPos={modalPos} nodes={nodes} edges={edges} theme={theme} t={t} s={s} modalTab={modalTab} setModalTab={setModalTab} exposedPorts={exposedPorts} currentModuleCode={currentModuleCode} handleModalDragStart={handleModalDragStart} setActiveModal={setActiveModal} updateSelectedNode={updateSelectedNode} togglePortSwap={togglePortSwap} toggleExposePort={toggleExposePort} handleCodeChange={handleCodeChange} getPortLabel={getPortLabel} parsePorts={parsePorts} recordHistory={recordHistory} setNodes={setNodes} setEdges={setEdges} setSelectedNodeId={setSelectedNodeId} setSelectedEdgeId={setSelectedEdgeId} setGlowingNet={setGlowingNet} highlightVerilogCode={highlightVerilogCode} />
-
-            {/* CLEAR MODAL */}
-            <ClearModal showClearModal={showClearModal} theme={theme} setShowClearModal={setShowClearModal} t={t} handleClearAll={handleClearAll} s={s} />
-
-            {/* SAVE MODAL */}
-            <SaveModal theme={theme} setShowSaveModal={setShowSaveModal} setProposedFileName={setProposedFileName} proposedFileName={proposedFileName} executeActualDownload={executeActualDownload} showSaveModal={showSaveModal} t={t} s={s} />
-
-            {/* HELP MODAL */}
-            <HelpModal showHelp={showHelp} setShowHelp={setShowHelp} t={t} theme={theme} kbdStyle={kbdStyle} />
-
-            {/* ERROR MODAL */}
-            <ErrorModal errorModal={errorModal} theme={theme} setErrorModal={setErrorModal} t={t} s={s} />
-
-            {/* MAIN LAYOUT */}
-            <div style={s.main} ref={mainRef}>
-                <LeftPanel leftCollapsed={leftCollapsed} setLeftTab={setLeftTab} setLeftCollapsed={setLeftCollapsed} leftTab={leftTab} theme={theme} t={t} s={s} leftWidth={leftWidth} setIsLibOpen={setIsLibOpen} createBlock={createBlock} setSelectedStandardBlock={setSelectedStandardBlock} spawnPrebuilt={spawnPrebuilt} selectedStandardBlock={selectedStandardBlock} setSelectedEdgeId={setSelectedEdgeId} setSelectedNodeId={setSelectedNodeId} isLibOpen={isLibOpen} newModuleName={newModuleName} setNewModuleName={setNewModuleName} setNewInputs={setNewInputs} setNewOutputs={setNewOutputs} nodes={nodes} edges={edges} newInputs={newInputs} newOutputs={newOutputs} exposedPorts={exposedPorts} setCenter={setCenter} setNodes={setNodes} searchInputRef={searchInputRef} moduleSearchQuery={moduleSearchQuery} setModuleSearchFocusIdx={setModuleSearchFocusIdx} jumpToNode={jumpToNode} setSearchHighlightIds={setSearchHighlightIds} setModuleSearchQuery={setModuleSearchQuery} handleModuleSearchKey={handleModuleSearchKey} moduleSearchResults={moduleSearchResults} moduleSearchFocusIdx={moduleSearchFocusIdx} hierarchyExpanded={hierarchyExpanded} hierarchyResults={hierarchyResults} setHierarchyExpanded={setHierarchyExpanded} setHierarchyResults={setHierarchyResults} setHierarchySearchQuery={setHierarchySearchQuery} hierarchySearchQuery={hierarchySearchQuery} hierarchyInputRef={hierarchyInputRef} highlightNetPath={highlightNetPath} buildHierarchyResult={buildHierarchyResult} />
-                {!leftCollapsed && <ResizeHandle onMouseDown={onMouseDownLeft} isDragging={draggingLeft} />}
-                <Canvas nodes={nodes} edges={edges} onNodeClick={onNodeClick} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onReconnect={onReconnect} onEdgeClick={onEdgeClick} onPaneClick={onPaneClick} edgeTypes={edgeTypes} nodeTypes={nodeTypes} recordHistory={recordHistory} ConnectionMode={ConnectionMode} t={t} s={s} />
-                {!rightCollapsed && <ResizeHandle onMouseDown={onMouseDownRight} isDragging={draggingRight} />}
-                <RightPanel s={s} setTopViewMode={setTopViewMode} setRightCollapsed={setRightCollapsed} rightCollapsed={rightCollapsed} topViewMode={topViewMode} t={t} theme={theme} renderTopSymbol={renderTopSymbol} structuralVerilogFull={structuralVerilogFull} testbenchCodeFull={testbenchCodeFull} copied={copied} handleCopyCode={handleCopyCode} rightWidth={rightWidth} />
-            </div>
-        </div>
-    );
-}

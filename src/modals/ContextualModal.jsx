@@ -397,7 +397,7 @@ const ContextualModal = ({
             </>
         );
 
-        // Code editor panel in MOdule Configuration
+        // Code editor panel in Module Configuration
         const renderCodePanel = () => (
             <div style={{ ...s.formGroup, flex: 1, display: 'flex', flexDirection: 'column', minHeight: '260px' }}>
                 <label style={s.label}>Behavioral RTL Code Implementation</label>

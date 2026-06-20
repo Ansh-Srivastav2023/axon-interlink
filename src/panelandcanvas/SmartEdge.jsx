@@ -7,7 +7,7 @@ import { IconAlert } from '../styles';
 
 export default function SmartEdge({ id, source, sourceHandle, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, markerEnd, style, selected }) {
     const { setEdges } = useReactFlow();
-    const [isHovered, setIsHovered] = useState(false);
+    const [isHovered, ] = useState(false);
 
     const isGlowing = data?.isGlowing || false;
     const isFlashing = data?.isFlashing || false;

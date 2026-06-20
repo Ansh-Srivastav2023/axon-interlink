@@ -1,5 +1,6 @@
 import { IconChevronLeft, IconChevronRight } from "../styles";
 import { highlightVerilogCode } from "../verilog-code/verilogEdits";
+import TopSymbolView from "./TopSymbolView";
 
 /**
  * RightPanel – displays the right sidebar of the schematic editor.
@@ -66,7 +67,9 @@ const RightPanel = ({
     topViewMode,            // current active tab
     t,                      // theme colour object
     theme,                  // 'dark' or 'light'
-    renderTopSymbol,        // function that renders the block diagram SVG
+    exposedPorts,
+    nodes,
+    handleVerilogLineClick,
     structuralVerilogFull,  // string of full structural Verilog code
     testbenchCodeFull,      // string of testbench code
     copied,                 // boolean – copy success state
@@ -161,7 +164,7 @@ const RightPanel = ({
                     className={`sidebar-expand-btn ${theme === 'dark' ? 'dark' : 'light'}`}
                     onMouseEnter={hoverScale}
                     onMouseLeave={unhover}
-                    style={{...s.iconBtn, marginTop:'45px'}}
+                    style={{ ...s.iconBtn, marginTop: '45px' }}
                     title="Collapse"
                 >
                     <IconChevronRight size={14} />
@@ -266,31 +269,75 @@ const RightPanel = ({
         );
     };
 
-    // ----- Render helper: the main content area (code, testbench, or symbol) -----
 
+    // ----- Render helper: the main content area (code, testbench, or symbol), along with Top-Module interactive element -----
     const renderContent = () => {
         if (topViewMode === 'code') {
-            // Display structural Verilog with syntax highlighting
-            return <pre style={s.codeBlock} dangerouslySetInnerHTML={{ __html: highlightVerilogCode(structuralVerilogFull, theme) }} />;
+            return (
+                <div style={{
+                    ...s.codeBlock,
+                    overflowY: 'auto',
+                    padding: '12px',
+                    fontFamily: '"SF Mono", Menlo, Monaco, monospace',
+                    fontSize: '12px',
+                    lineHeight: '1.6'
+                }}>
+                    {structuralVerilogFull.split('\n').map((line, idx) => {
+                        const isCommentOrEmpty = !line.trim() || line.trim().startsWith('//');
+                        const isInteractive = !isCommentOrEmpty && (
+                            line.includes('wire w_') ||
+                            line.includes('assign w_') ||
+                            (nodes || []).some(n => n && line.includes(n.data?.instanceName))
+                        );
+
+                        return (
+                            <div
+                                key={`v_line_${idx}`}
+                                // Simple text matching parameter call
+                                onClick={() => isInteractive && typeof handleVerilogLineClick === 'function' && handleVerilogLineClick(line)}
+                                style={{
+                                    padding: '0 6px',
+                                    borderRadius: '3px',
+                                    cursor: isInteractive ? 'pointer' : 'text',
+                                    transition: 'background 0.15s ease',
+                                    whiteSpace: 'pre',
+                                    minHeight: '18px'
+                                }}
+                                onMouseEnter={(e) => {
+                                    if (isInteractive) {
+                                        e.currentTarget.style.background = theme === 'dark' ? '#1e293b' : '#e2e8f0';
+                                    }
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'transparent';
+                                }}
+                                dangerouslySetInnerHTML={{ __html: highlightVerilogCode(line, theme) }}
+                            />
+                        );
+                    })}
+                </div>
+            );
         }
         if (topViewMode === 'testbench') {
-            // Display testbench code with syntax highlighting
             return <pre style={s.codeBlock} dangerouslySetInnerHTML={{ __html: highlightVerilogCode(testbenchCodeFull, theme) }} />;
         }
-        // Default: render the block diagram (SVG symbol) using the passed-in function
-        return renderTopSymbol();
+
+        return (
+            <TopSymbolView
+                exposedPorts={exposedPorts}
+                nodes={nodes}
+                theme={theme}
+            />
+        );
     };
 
     // ============================
     // Main render
     // ============================
 
-    // If the panel is collapsed, only show the icon bar.
     if (rightCollapsed) {
         return <div style={s.rightPanel}>{renderCollapsed()}</div>;
     }
-
-    // Expanded view: full panel with header, tabs, and content.
     return (
         <div style={s.rightPanel}>
             <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
