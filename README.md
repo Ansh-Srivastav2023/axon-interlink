@@ -1,157 +1,165 @@
-# Axon Interlink – Visual Hardware Design & Structural Verilog Generator
+# ⚡ Digital Schematic Editor
 
-Axon Interlink is an interactive, browser‑based schematic editor for digital logic design. It allows you to **drag‑and‑drop hardware modules**, **wire them together**, and **automatically generate clean, structural Verilog code** – complete with a testbench template. Built with React Flow, it’s perfect for rapid prototyping, teaching digital design, or exploring complex netlists without leaving your browser.
+A **React‑based digital design tool** for creating, editing, and simulating hardware schematics.  
+Drag‑and‑drop blocks, wire them together, run design rule checks (DRC), generate RTL code, and export testbenches – all from your browser.
 
-![Axon Interlink Screenshot](https://via.placeholder.com/1200x600?text=Axon+Interlink+Canvas)
+**Light Mode**
+![alt text](images/image.png)
 
----
+**Dark Mode**
+![alt text](images/image%20copy.png)
 
-## ✨ Features
 
-- **Visual Schematic Editor** – Place, connect, and arrange modules on an infinite canvas.
-- **Smart Wiring** – Enforce correct port direction (output → input) and detect width mismatches.
-- **Pre‑built Component Library** – Over 30 common digital blocks (gates, adders, muxes, flip‑flops, etc.) ready to drop in.
-- **Custom Module Creation** – Define your own module with arbitrary input/output ports.
-- **Auto‑Layout** – Automatically organise your schematic based on data flow.
-- **Real‑time Design Rule Checks (DRC)** – Highlight floating inputs, unused outputs, multiple drivers, and bit‑width mismatches.
-- **Structural Verilog Generation** – One‑click export of a synthesizable `top_module` and a testbench skeleton.
-- **Hierarchy & Net Trace** – Explore fan‑in/fan‑out of any module and jump to its location on the canvas.
-- **Dark / Light Theme** – Choose what suits your eyes.
-- **Undo / Redo** – Full history of your editing actions.
-- **Save / Load** – Persist your workspace as a JSON file.
-- **Port Promotion** – Expose internal signals as top‑level ports for integration.
+## Live Demo
 
----
+[Launch the editor](#) –https://ansh-srivastav2023.github.io/axon-interlink/
 
-## 🧱 Tech Stack
 
-- **React** – UI framework
-- **React Flow** – Canvas and node/edge management
-- **Tabler Icons** – Icon set
-- **Custom CSS + Styled Components** – Theming and responsive layout
-- **Syntax Highlighting** – In‑browser Verilog code highlighting
 
----
+## Features
 
-## 🚀 Getting Started
+- **Visual Schematic Capture** – instantiate modules, draw wires, and rearrange layout.
+![alt text](images/image%20copy%202.png)
 
-### Prerequisites
+`The instatntiation can be done in two ways: -`
+- Either from the `Standard Cell Library` present in `Left Panel`.
+- **Standard Cell Library** – pre‑built gates and functional blocks (AND, OR, MUX, etc.).
+- **Custom Module Support** – define your own modules with arbitrary I/O ports.
+- **Design Rule Check (DRC)** – instantly detect:
+  - Floating inputs
+  - Short‑circuited buses
+  - Unused outputs
+  - Width mismatches
+- **Hierarchical Net Tracing** – explore drivers, fanout, and unconnected nets.
+- **Live Verilog Code Generation** – structural RTL code for your entire design.
+- **Testbench Templates** – auto‑generate basic testbenches to validate your design.
+- **Undo / Redo** – full history of changes.
+- **Save & Load** – export/import your workspace as a JSON file.
+- **Dark / Light Theme** – comfortable for day or night.
+- **Collapsible Side Panels** – maximise canvas real estate.
+- **Syntax‑highlighted Code View** – Verilog with line numbers and highlighting.
+- **Block Diagram Preview** – visual symbol of your top‑level module.
 
-- Node.js (v16 or newer)
-- npm
 
-### Installation
+## Tech Stack
+
+- [React](https://reactjs.org/) – UI framework
+- [React Flow](https://reactflow.dev/) – node‑based canvas and edge management
+- [Tabler Icons](https://tablericons.com/) / [React Icons](https://react-icons.github.io/) – iconography
+- CSS‑in‑JS (inline styles) – theming and responsive layout
+- Custom Verilog syntax highlighter
+
+
+## Installation & Setup (to run locally)
 
 ```bash
-git clone https://github.com/yourusername/axon-interlink.git
+# 1. Clone the repository
+git clone https://github.com/Ansh-Srivastav2023/axon-interlink.git
 cd axon-interlink
+
+# 2. Install dependencies
 npm install
-```
 
-### Running the Development Server
-
-```bash
-npm start
+# 3. Start the development server
+npm run dev
 ```
 
 The app will open at `http://localhost:3000`.
 
-### Building for Production
+
+## Deployment
+
+Build a production‑ready bundle:
 
 ```bash
 npm run build
 ```
 
----
+Deploy the `build/` folder to any static hosting service:
 
-## 🖱️ How to Use
+- **Vercel** – `vercel --prod`
+- **Netlify** – drag & drop the build folder
+- **GitHub Pages** – use `gh-pages` branch
 
-### 1. Adding Modules
-- Open the **Library** tab in the left panel.
-- Select a pre‑built module from the dropdown, then click **+ Add** – it appears on the canvas.
-- For custom modules, fill in the **Module Definition Name**, **Input Port List**, and **Output Port List** (comma‑separated vector declarations e.g. `a[3:0], b[3:0]`), then click **Instantiate Hardware Block**.
 
-### 2. Connecting Modules
-- Click on an **output port** (small circle on the right side of a node) and drag to an **input port** (small circle on the left side) of another node.
-- The edge will be created automatically. Connections are validated for direction and bit‑width.
-
-### 3. Configuring a Module
-- **Click** any module on the canvas to open its properties modal.
-- Here you can:
-  - Rename the module.
-  - Edit port lists (inputs/outputs).
-  - Flip the port layout.
-  - Promote ports to the top‑level (if they are not wired).
-  - For **Splitter** and **Bundler** nodes, adjust the number of slices and their widths.
-
-### 4. Configuring a Wire
-- **Click** any wire to open its properties modal.
-- You can force an explicit bit‑width override (useful for resolving mismatches).
-- Change the edge colour for better visibility.
-
-### 5. Tracing a Net
-- Open the **Trace** tab in the left panel.
-- Enter a module or instance name to see its drivers (inputs), fanout (outputs), and any floating inputs.
-- Click any driver/fanout entry to jump to that net and highlight it on the canvas.
-
-### 6. Generating Verilog
-- The right panel displays the generated structural **Verilog** code.
-- Switch between **Code** (the structural top‑level), **TB Template** (testbench), and **Block Diagram** (a symbolic view of the top‑level ports).
-- Click the copy button to copy the code to your clipboard.
-
-### 7. Saving / Loading
-- Use **Save Work** to download your design as a `.json` file.
-- Use **Load File** to restore a previously saved workspace.
-
----
-
-## 📁 Project Structure (Key Files)
+## Project Structure
 
 ```
-axon-interlink/
-├── public/                 # Static assets
-├── src/
-│   ├── components/         # React components (nodes, edges, panels)
-│   │   ├── HardwareNode.js
-│   │   ├── GateNode.js
-│   │   ├── SplitterNode.js
-│   │   └── ...
-│   ├── edges/              # Custom edge types (SmartEdge, ResizeHandle)
-│   ├── styles/             # Theming and styling functions
-│   ├── utils/              # Helpers (port parsing, library definitions, code highlighting)
-│   ├── verilog-code/       # Verilog syntax highlighter
-│   ├── FlowCanvas.jsx      # Main application component
-│   └── index.js            # Entry point
-├── package.json
-└── README.md
+src
+├── App.css
+├── App.jsx
+├── assets
+│   ├── hero.png
+│   ├── react.svg
+│   └── vite.svg
+├── edges
+│   ├── Canvas.jsx
+│   ├── index.js
+│   ├── LeftPanel.jsx
+│   ├── ResizeHandle.jsx
+│   ├── RightPanel.jsx
+│   └── SmartEdge.jsx
+├── ErrorBoundary.jsx
+├── FlowCanvas.jsx
+├── hooks
+│   ├── index.js
+│   ├── useFileOperations.js
+│   └── useHistory.js
+├── index.css
+├── main.jsx
+├── modals
+│   ├── ClearModal.jsx
+│   ├── ContextualModal.jsx
+│   ├── ErrorModal.jsx
+│   ├── HelpModal.jsx
+│   ├── index.js
+│   └── SaveModal.jsx
+├── nodes
+│   ├── GateNode.jsx
+│   ├── HardwareNode.jsx
+│   ├── index.js
+│   └── SplitterNode.jsx
+├── styles
+│   ├── getStyles.js
+│   ├── icons.jsx
+│   ├── index.js
+│   ├── InfoIcon.jsx
+│   ├── nodeStyles.js
+│   └── renderDecorations.jsx
+├── utils
+│   ├── hardwareutils.js
+│   ├── Header.jsx
+│   └── Logo.jsx
+└── verilog-code
+    └── verilogEdits.jsx
 ```
 
----
 
-## 🤝 Contributing
+## How to Use
 
-Contributions are welcome! Please open an issue or submit a pull request.
+1. **Add a block** – use the *Library* tab on the left to pick a standard cell or define a custom module.
+2. **Draw wires** – click on a port (circle) and drag to another port.
+3. **Configure a block** – double‑click or click the `Properties` button in the modal that appears.
+4. **Run DRC** – see alerts in the left panel to catch errors.
+5. **Generate code** – open the right panel to view structural Verilog or a testbench template.
+6. **Search & trace** – use the *Search* tab to find modules, and the *Trace* tab to analyse net connectivity. Bothe buttons are present on the `Left Panel`.
+7. **Save your work** – use the *Save Work* button in the header to download a JSON file. Load it later with *Load File*.
 
-1. Fork the repository.
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3. Commit your changes (`git commit -m 'Add some amazing feature'`).
-4. Push to the branch (`git push origin feature/AmazingFeature`).
-5. Open a Pull Request.
 
----
+## Key Interactions
 
-## 📄 License
+| Action                  | How to do it |
+|-------------------------|--------------|
+| Select / move block     | Click and drag on the block |
+| Delete block or wire    | Select it and press `Delete` / `Backspace` |
+| Undo / Redo             | `Ctrl+Z` / `Ctrl+Y` or header buttons |
+| Copy block              | `Ctrl+C` / `Ctrl+V` (selected block) |
+| Pan canvas              | Drag the background or use mouse wheel |
+| Zoom                    | `Ctrl` + scroll wheel |
+| Open modal for block    | Double‑click block, or click the alert in DRC |
+| Collapse side panels    | Click the arrow buttons in the panel headers |
 
-Distributed under the MIT License. See `LICENSE` for more information.
+-----------------------------------
 
----
+## Author:- **Ansh Srivastav**
 
-## 🙏 Acknowledgements
-
-- [React Flow](https://reactflow.dev/) – the core canvas library.
-- [Tabler Icons](https://tablericons.com/) – clean icon set.
-- All open‑source contributors who make digital design accessible.
-
----
-
-**Happy Designing!** 🧠⚡
