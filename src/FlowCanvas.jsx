@@ -1301,7 +1301,58 @@ export default function FlowCanvas() {
 
 
     /* ============================================================
-       26. RENDER
+    26. AUTO-SAVE & AUTO-LOAD SYSTEM (LocalStorage Persist)
+   ============================================================ */
+
+    const [isHydrated, setIsHydrated] = useState(false);
+
+    // 1. AUTO-LOAD: Runs ONCE when the component mounts
+    useEffect(() => {
+        const savedData = localStorage.getItem('axon_interlink_workspace');
+        if (savedData) {
+            try {
+                const parsed = JSON.parse(savedData);
+
+                requestAnimationFrame(() => {
+                    if (parsed.nodes) setNodes(parsed.nodes);
+                    if (parsed.edges) setEdges(parsed.edges);
+                    if (parsed.customCodes) setCustomCodes(parsed.customCodes);
+                    if (parsed.exposedPorts) setExposedPorts(parsed.exposedPorts);
+                    if (parsed.theme) setTheme(parsed.theme);
+                    setIsHydrated(true);
+                });
+
+            } catch (error) {
+                console.error("Failed to parse auto-saved workspace data:", error);
+                requestAnimationFrame(() => {
+                    setIsHydrated(true);
+                });
+            }
+        } else {
+            requestAnimationFrame(() => {
+                setIsHydrated(true);
+            });
+        }
+    }, [setNodes, setEdges, setCustomCodes, setExposedPorts, setTheme, setIsHydrated]);
+
+    // 2. AUTO-SAVE: Runs every time a critical state changes
+    useEffect(() => {
+        if (!isHydrated) return;
+
+        const dataToSave = {
+            nodes,
+            edges,
+            customCodes,
+            exposedPorts,
+            theme
+        };
+        localStorage.setItem('axon_interlink_workspace', JSON.stringify(dataToSave));
+    }, [nodes, edges, customCodes, exposedPorts, theme, isHydrated]);
+    
+
+
+    /* ============================================================
+       27. RENDER
        ============================================================ */
     return (
         <div style={s.app}>

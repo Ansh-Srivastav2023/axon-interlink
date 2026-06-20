@@ -82,6 +82,7 @@ export default function useFileOperations({
         setSelectedEdgeId(null);
         setGlowingNet(null);
         setShowClearModal(false);
+        localStorage.removeItem('axon_interlink_workspace');
     }, [
         recordHistory,
         setNodes,
