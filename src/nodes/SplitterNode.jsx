@@ -1,20 +1,15 @@
 import { useEffect } from 'react';
 import {
-    useReactFlow, Handle, Position, useUpdateNodeInternals, useEdges
+    Handle, Position, useUpdateNodeInternals, useEdges
 } from '@xyflow/react';
 
-
-import { 
-    lightNodeStyles, 
+import {
+    lightNodeStyles,
     darkNodeStyles,
     renderDecorations
 } from '../styles';
 
-import { parsePorts } from '../utils/hardwareutils'
-
-
 export default function SplitterNode({ id, data, selected }) {
-    const { setNodes } = useReactFlow();
     const updateNodeInternals = useUpdateNodeInternals();
     const edges = useEdges();
 
@@ -76,7 +71,13 @@ export default function SplitterNode({ id, data, selected }) {
             };
 
             return (
-                <Handle key={port.name} type={handleType} position={side} id={port.name} style={handleStyle}>
+                <Handle 
+                    key={`${port.name}_idx${index}_w${port.width || 1}_t${total}`} 
+                    type={handleType} 
+                    position={side} 
+                    id={port.name} 
+                    style={handleStyle}
+                >
                     {renderDecorations(port, isInput, side, data, t, edges, id)}
                 </Handle>
             );

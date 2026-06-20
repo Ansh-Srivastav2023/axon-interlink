@@ -1,4 +1,5 @@
 export * from './nodeStyles'
 export * from './icons'
-export * from './nodeUtils' // ← add this
+export * from './renderDecorations' // ← add this
+export * from './InfoIcon'
 export { default as getStyles } from './getStyles'

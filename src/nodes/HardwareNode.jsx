@@ -11,38 +11,37 @@ import {
     IconZap,
     IconCircleSlash,
     IconActivity,
-    // renderInfoIcon,
     InfoIcon,
     renderDecorations
 } from '../styles';
 
-import { getPortLabel } from '../utils/hardwareutils'
-
+import { getPortLabel } from '../utils/hardwareutils';
 
 export default function HardwareNode({ id, data, selected }) {
-    const { setNodes } = useReactFlow();
+    // ─── ALL HOOKS CALLED UNCONDITIONALLY ─────────────────────────────
+    const { setNodes, getNodes } = useReactFlow();
     const updateNodeInternals = useUpdateNodeInternals();
     const edges = useEdges();
 
-    if (!data) return null;
-
     useEffect(() => {
-        updateNodeInternals(id);
-    }, [data.portsSwapped, id, updateNodeInternals]);
+        if (data) updateNodeInternals(id);
+    }, [data, data?.portsSwapped, id, updateNodeInternals]);
 
-    const isDark = data.theme === 'dark';
+    const isDark = data?.theme === 'dark';
     const t = isDark ? darkNodeStyles : lightNodeStyles;
-
-    const isSwapped = !!data.portsSwapped;
+    const isSwapped = !!data?.portsSwapped;
     const inputsPosition = isSwapped ? Position.Right : Position.Left;
     const outputsPosition = isSwapped ? Position.Left : Position.Right;
 
-    // ─── PERFORMANCE FIX: MEMOIZE LOCAL EDGES FOR THIS NODE ONLY ───
     const localIncomingEdges = useMemo(() => edges.filter(e => e.target === id), [edges, id]);
     const localOutgoingEdges = useMemo(() => edges.filter(e => e.source === id), [edges, id]);
 
+    // ─── EARLY RETURN AFTER HOOKS ─────────────────────────────────────
+    if (!data) return null;
+
+    // ─── getWarnings (now safe to use data) ──────────────────────────
     const getWarnings = (port, isInput) => {
-        // Look up from pre-filtered sub-arrays instead of the entire global edges array
+        const allNodes = getNodes();
         const connected = isInput
             ? localIncomingEdges.filter(e => e.targetHandle === port.name)
             : localOutgoingEdges.filter(e => e.sourceHandle === port.name);
@@ -51,12 +50,28 @@ export default function HardwareNode({ id, data, selected }) {
         const autoRoute = data.autoRoute?.[port.name];
         const isExposed = data.exposedPorts?.[port.name];
         let w = [];
+
         if (isInput) {
-            if (connected.length === 0 && !tieoff && !autoRoute && !isExposed) w.push({ msg: 'Floating input', icon: <IconAlert color="#ef4444" size={12} /> });
-            if (connected.length > 1) w.push({ msg: 'Multiple drivers', icon: <IconZap color="#ef4444" size={12} /> });
-            if (connected.some(e => e.data?.bitWidth !== port.width)) w.push({ msg: 'Width mismatch', icon: <IconActivity color="#f59e0b" size={12} /> });
+            if (connected.length === 0 && !tieoff && !autoRoute && !isExposed) {
+                w.push({ msg: 'Floating input', icon: <IconAlert color="#ef4444" size={12} /> });
+            }
+            if (connected.length > 1) {
+                w.push({ msg: 'Multiple drivers', icon: <IconZap color="#ef4444" size={12} /> });
+            }
+            // Width mismatch: compare source and target widths directly
+            const hasMismatch = connected.some(e => {
+                const srcNode = allNodes.find(n => n.id === e.source);
+                if (!srcNode) return false;
+                const srcPort = (srcNode.data.outputs || []).find(p => p.name === e.sourceHandle);
+                return srcPort && srcPort.width !== port.width;
+            });
+            if (hasMismatch) {
+                w.push({ msg: 'Width mismatch', icon: <IconActivity color="#f59e0b" size={12} /> });
+            }
         } else {
-            if (connected.length === 0 && !isExposed) w.push({ msg: 'Unused output', icon: <IconCircleSlash color="#9ca3af" size={12} /> });
+            if (connected.length === 0 && !isExposed) {
+                w.push({ msg: 'Unused output', icon: <IconCircleSlash color="#9ca3af" size={12} /> });
+            }
         }
         return w;
     };

@@ -1,49 +1,42 @@
 import React, { useMemo, useEffect } from 'react';
+import { useReactFlow, Handle, Position, useUpdateNodeInternals, useEdges } from '@xyflow/react';
+
 import {
-    useReactFlow, Handle, Position, useUpdateNodeInternals, useEdges
-} from '@xyflow/react';
-
-
-import { 
-    lightNodeStyles, 
+    lightNodeStyles,
     darkNodeStyles,
     IconAlert,
     IconZap,
     IconCircleSlash,
     IconActivity,
-    // renderInfoIcon,
     InfoIcon,
     renderDecorations
 } from '../styles';
 
-// import { parsePorts } from '../utils/hardwareutils'
-
 export default function GateNode({ id, data, selected }) {
-    const { setNodes } = useReactFlow();
+    // ─── ALL HOOKS CALLED UNCONDITIONALLY ─────────────────────────────
+    const { setNodes, getNodes } = useReactFlow();
     const updateNodeInternals = useUpdateNodeInternals();
     const edges = useEdges();
 
-    if (!data) return null;
-
     useEffect(() => {
-        updateNodeInternals(id);
-    }, [data.portsSwapped, id, updateNodeInternals]);
+        if (data) updateNodeInternals(id);
+    }, [data, data?.portsSwapped, id, updateNodeInternals]);
 
-    const isDark = data.theme === 'dark';
+    const isDark = data?.theme === 'dark';
     const t = isDark ? darkNodeStyles : lightNodeStyles;
-
-    const stroke = selected ? (isDark ? '#3b82f6' : '#2563eb') : (isDark ? '#a3a3a3' : '#4b5563');
-    const fill = isDark ? '#050505' : '#ffffff';
-
-    const isSwapped = !!data.portsSwapped;
+    const isSwapped = !!data?.portsSwapped;
     const inputsPosition = isSwapped ? Position.Right : Position.Left;
     const outputsPosition = isSwapped ? Position.Left : Position.Right;
 
-    // ─── PERFORMANCE FIX: MEMOIZE LOCAL EDGES FOR THIS NODE ONLY ───
     const localIncomingEdges = useMemo(() => edges.filter(e => e.target === id), [edges, id]);
     const localOutgoingEdges = useMemo(() => edges.filter(e => e.source === id), [edges, id]);
 
+    // ─── EARLY RETURN AFTER HOOKS ─────────────────────────────────────
+    if (!data) return null;
+
+    // ─── getWarnings ────────────────────────────────────────────────────
     const getWarnings = (port, isInput) => {
+        const allNodes = getNodes();
         const connected = isInput
             ? localIncomingEdges.filter(e => e.targetHandle === port.name)
             : localOutgoingEdges.filter(e => e.sourceHandle === port.name);
@@ -52,15 +45,34 @@ export default function GateNode({ id, data, selected }) {
         const autoRoute = data.autoRoute?.[port.name];
         const isExposed = data.exposedPorts?.[port.name];
         let w = [];
+
         if (isInput) {
-            if (connected.length === 0 && !tieoff && !autoRoute && !isExposed) w.push({ msg: 'Floating input', icon: <IconAlert color="#ef4444" size={10} /> });
-            if (connected.length > 1) w.push({ msg: 'Multiple drivers', icon: <IconZap color="#ef4444" size={10} /> });
-            if (connected.some(e => e.data?.bitWidth !== port.width)) w.push({ msg: 'Width mismatch', icon: <IconActivity color="#f59e0b" size={10} /> });
+            if (connected.length === 0 && !tieoff && !autoRoute && !isExposed) {
+                w.push({ msg: 'Floating input', icon: <IconAlert color="#ef4444" size={10} /> });
+            }
+            if (connected.length > 1) {
+                w.push({ msg: 'Multiple drivers', icon: <IconZap color="#ef4444" size={10} /> });
+            }
+            // Width mismatch: compare source and target widths directly
+            const hasMismatch = connected.some(e => {
+                const srcNode = allNodes.find(n => n.id === e.source);
+                if (!srcNode) return false;
+                const srcPort = (srcNode.data.outputs || []).find(p => p.name === e.sourceHandle);
+                return srcPort && srcPort.width !== port.width;
+            });
+            if (hasMismatch) {
+                w.push({ msg: 'Width mismatch', icon: <IconActivity color="#f59e0b" size={10} /> });
+            }
         } else {
-            if (connected.length === 0 && !isExposed) w.push({ msg: 'Unused output', icon: <IconCircleSlash color="#9ca3af" size={10} /> });
+            if (connected.length === 0 && !isExposed) {
+                w.push({ msg: 'Unused output', icon: <IconCircleSlash color="#9ca3af" size={10} /> });
+            }
         }
         return w;
     };
+
+    const stroke = selected ? (isDark ? '#3b82f6' : '#2563eb') : (isDark ? '#a3a3a3' : '#4b5563');
+    const fill = isDark ? '#050505' : '#ffffff';
 
     const containerStyle = {
         width: '60px',
@@ -103,7 +115,22 @@ export default function GateNode({ id, data, selected }) {
         const renderShape = () => {
             switch (shape) {
                 case 'AND': return <path d="M 12 10 L 30 10 A 20 20 0 0 1 30 50 L 12 50 Z" fill={fill} stroke={stroke} strokeWidth="2" />;
-                case 'NAND': return <g><path d="M 12 10 L 30 10 A 20 20 0 0 1 30 50 L 12 50 Z" fill={fill} stroke={stroke} strokeWidth="2" /><circle cx="53" cy="30" r="3" fill={fill} stroke={stroke} strokeWidth="2" /></g>;
+                case 'NAND':
+                    return (
+                        <g>
+                            <path d="M 12 10 L 30 10 A 20 20 0 0 1 30 50 L 12 50 Z"
+                                fill={fill}
+                                stroke={stroke}
+                                strokeWidth="2"
+                            />
+                            <circle cx="52" cy="30" r="2"
+                                fill={fill}
+                                stroke={stroke}
+                                strokeWidth="2"
+                            />
+                        </g>
+                    );
+
                 case 'OR': return <path d="M 10 10 Q 25 30 10 50 Q 35 50 48 30 Q 35 10 10 10 Z" fill={fill} stroke={stroke} strokeWidth="2" />;
                 case 'NOR': return <g><path d="M 10 10 Q 25 30 10 50 Q 35 50 48 30 Q 35 10 10 10 Z" fill={fill} stroke={stroke} strokeWidth="2" /><circle cx="51" cy="30" r="3" fill={fill} stroke={stroke} strokeWidth="2" /></g>;
                 case 'XOR': return <g><path d="M 5 10 Q 20 30 5 50" fill="none" stroke={stroke} strokeWidth="2" /><path d="M 12 10 Q 27 30 12 50 Q 37 50 48 30 Q 37 10 12 10 Z" fill={fill} stroke={stroke} strokeWidth="2" /></g>;

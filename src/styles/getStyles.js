@@ -2,22 +2,37 @@ export default function getStyles(t, leftCollapsed, rightCollapsed, leftWidth, r
   return {
     tabBarContainer: {
       display: 'flex',
-      flexDirection: 'column', 
+      flexDirection: 'column',
       gap: '10px',
       flex: 1
     },
     app: { display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', fontSize: '14px', color: t.text, backgroundColor: t.bg, userSelect: isDragging ? 'none' : 'auto' },
+
     header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '52px', padding: '0 20px', backgroundColor: t.bgSecondary, flexShrink: 0 },
     headerTitle: { fontSize: '14px', fontWeight: 600, color: t.textHeading, letterSpacing: '-0.2px' },
     headerActions: { display: 'flex', alignItems: 'center', gap: '8px' },
-    badge: { fontSize: '12px', padding: '3px 9px', background: t.bgTertiary, borderRadius: '5px', color: t.textSecondary, fontWeight: 500 },
-    iconBtn: { padding: '10px 10px', background: "linear-gradient(90deg, #6e01dc, #23dcdc)", border: 'none', borderRadius: '50%', fontSize: '12px', cursor: 'pointer', color: '#fff' },
+    iconBtn: { width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(90deg, #2897ff, #4800ff)', border: 'none', borderRadius: '50%', cursor: 'pointer', color: '#fff', fontSize: '12px', padding: 0, flexShrink: 0 },
+
+    badge: {
+      padding: '5px 10px',
+      fontSize: '11px',
+      fontWeight: 600,
+      borderRadius: '8px',
+      background: `linear-gradient(180deg, ${t.bgTertiary} 0%, ${t.bg} 100%)`,
+      color: t.textSecondary,
+      border: `1px solid ${t.border}`,
+      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.04)`,
+      whiteSpace: 'nowrap'
+    },
+
     main: { display: 'flex', flex: 1, overflow: 'hidden', padding: '8px', gap: '0' },
-    leftPanel: { width: leftCollapsed ? '60px' : `${leftWidth}px`, minWidth: leftCollapsed ? '44px' : `${leftWidth}px`, backgroundColor: t.bgSecondary, border: 'none', borderRadius: '8px', display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0, transition: isDragging ? 'none' : 'width 0.15s ease, min-width 0.15s ease' },
-    rightPanel: { width: rightCollapsed ? '60px' : `${rightWidth}px`, minWidth: rightCollapsed ? '44px' : `${rightWidth}px`, backgroundColor: t.bgSecondary, border: 'none', borderRadius: '8px', display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0, transition: isDragging ? 'none' : 'width 0.15s ease, min-width 0.15s ease' },
+    leftPanel: { width: leftCollapsed ? '60px' : `${leftWidth}px`, minWidth: leftCollapsed ? '44px' : `${leftWidth}px`, backgroundColor: t.bgSecondary, border: 'none', borderRadius: '8px', display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0, transition: isDragging ? 'none' : 'width 0.3s ease, min-width 0.3s ease' },
+
+    rightPanel: { width: rightCollapsed ? '60px' : `${rightWidth}px`, minWidth: rightCollapsed ? '44px' : `${rightWidth}px`, backgroundColor: t.bgSecondary, border: 'none', borderRadius: '8px', display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0, transition: isDragging ? 'none' : 'width 0.3s ease, min-width 0.3s ease' },
+
     canvas: { flex: 1, borderRadius: '8px', border: 'none', overflow: 'hidden', margin: '0 4px' },
     panelHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', backgroundColor: t.bgSecondary, flexShrink: 0, minHeight: '48px' },
-    sectionTitle: { fontSize: '16px', fontWeight: 700, color: t.textHeading, textTransform: 'none', letterSpacing: '-0.3px', WebkitFontSmoothing: "antialiased", MozOsxFontSmoothing: "grayscale", fontFamily:'monospace' },
+    sectionTitle: { fontSize: '20px', fontWeight: 700, color: t.textHeading, textTransform: 'none', letterSpacing: '-0.3px', WebkitFontSmoothing: "antialiased", MozOsxFontSmoothing: "grayscale", fontFamily: 'monospace' },
     panelSection: { padding: '14px' },
     divider: { height: '0px', backgroundColor: 'transparent' },
     form: { display: 'flex', flexDirection: 'column', gap: '12px' },
