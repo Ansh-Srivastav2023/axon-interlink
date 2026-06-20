@@ -1,8 +1,3 @@
-/**
- * LeftPanel – the left sidebar of the schematic editor.
- * It provides three tabs: Library (for adding blocks), Search (to find modules), and Trace (hierarchy/net analysis).
- * The panel can be collapsed to a narrow icon bar.
- */
 import {
     IconAlert, IconZap, IconCircleSlash, IconActivity,
     IconGrid, IconSearch, IconTrace,
@@ -10,39 +5,25 @@ import {
 } from '../styles';
 import { STANDARD_LIBRARY } from '../utils/hardwareutils';
 
-// ============================
-// Constants & Helpers (outside component)
-// ============================
-
-/** Tab configuration: [id, iconComponent, label] */
+// Tab configuration for header and collapsed icons
 const TABS = [
     ['library', IconGrid, 'Library'],
     ['search', IconSearch, 'Search'],
     ['trace', IconTrace, 'Trace'],
 ];
 
-/**
- * Reusable hover effect for icon buttons: scale + glow.
- * @param {MouseEvent} e - mouse event
- * @param {number} scale - scale factor
- * @param {string} shadowColor - CSS shadow colour
- */
+// Reusable hover effects for buttons
 const hoverScaleShadow = (e, scale = 1.12, shadowColor = 'rgba(99, 7, 247, 0.7)') => {
     e.currentTarget.style.transform = `scale(${scale})`;
     e.currentTarget.style.boxShadow = `0px 0px 20px ${shadowColor}`;
     e.currentTarget.style.filter = 'brightness(1.2)';
 };
 
-/** Reversal of hoverScaleShadow – resets to normal */
 const unhoverScaleShadow = (e) => {
     e.currentTarget.style.transform = 'scale(1)';
     e.currentTarget.style.boxShadow = 'none';
     e.currentTarget.style.filter = 'brightness(1)';
 };
-
-// ============================
-// Main Component
-// ============================
 
 const LeftPanel = ({
     leftCollapsed,
@@ -88,12 +69,10 @@ const LeftPanel = ({
     setHierarchySearchQuery,
     hierarchySearchQuery,
     hierarchyInputRef,
-    highlightNetPath,
+    highlightNetPath,          // passed from parent
     buildHierarchyResult,
 }) => {
-    // ----------------------------------------------
-    // 1. Collapsed view – icon bar only
-    // ----------------------------------------------
+    // ===== Collapsed view (icon bar) =====
     const renderCollapsed = () => (
         <div
             style={{
@@ -113,28 +92,25 @@ const LeftPanel = ({
                         setLeftTab(tab);
                         setLeftCollapsed(false);
                     }}
-                    className={`sidebar-expand-btn ${theme === 'dark' ? 'dark' : 'light'}`}
-                    onMouseEnter={(e) => hoverScaleShadow(e)}
+                    onMouseEnter={hoverScaleShadow}
                     onMouseLeave={unhoverScaleShadow}
                     style={{
-                        top: '20px',
-                        padding: '10px',
-                        marginTop: '30px',
+                        padding: '8px',
                         borderRadius: '50%',
                         cursor: 'pointer',
-                        width: '40px',
-                        height: '40px',
                         border: 'none',
-                        background: 'linear-gradient(90deg, #eb2525, #5004c8)',
-                        color: '#fff',
-                        transition: 'all 0.3s ease',
+                        background:
+                            leftTab === tab
+                                ? 'linear-gradient(90deg, #2563EB, #6D28D9)'
+                                : 'transparent',
+                        color: leftTab === tab ? '#fff' : t.textSecondary,
+                        transition: 'all 0.2s ease',
                     }}
                     title={label}
                 >
                     <Icon size={18} />
                 </button>
             ))}
-            {/* Expand button – only visible when collapsed */}
             <button
                 onClick={() => setLeftCollapsed(false)}
                 className={`sidebar-expand-btn ${theme === 'dark' ? 'dark' : 'light'}`}
@@ -168,9 +144,7 @@ const LeftPanel = ({
         </div>
     );
 
-    // ----------------------------------------------
-    // 2. Panel header – tabs + collapse button
-    // ----------------------------------------------
+    // ===== Expanded view header (tabs + collapse) =====
     const renderHeader = () => (
         <div style={s.panelHeader}>
             <div style={{ display: 'flex', gap: '10px', flex: 1 }}>
@@ -179,7 +153,7 @@ const LeftPanel = ({
                         key={tab}
                         onClick={() => setLeftTab(tab)}
                         title={label}
-                        onMouseEnter={(e) => hoverScaleShadow(e)}
+                        onMouseEnter={hoverScaleShadow}
                         onMouseLeave={unhoverScaleShadow}
                         style={{
                             display: 'flex',
@@ -207,17 +181,15 @@ const LeftPanel = ({
             </div>
             <button
                 onClick={() => setLeftCollapsed(true)}
-                className={`sidebar-expand-btn ${theme === 'dark' ? 'dark' : 'light'}`}
-                onMouseEnter={(e) => hoverScaleShadow(e)}
+                onMouseEnter={hoverScaleShadow}
                 onMouseLeave={unhoverScaleShadow}
                 style={{
                     ...s.iconBtn,
                     marginLeft: '10px',
                     display: 'flex',
-                    top: '20px',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    background: 'linear-gradient(90deg, #2563EB, #6D28D9)',
+                    background: 'linear-gradient(90deg, #6e01dc, #23dcdc)',
                     color: '#fff',
                     border: 'none',
                     transition: 'all 0.2s',
@@ -229,19 +201,13 @@ const LeftPanel = ({
         </div>
     );
 
-    // ----------------------------------------------
-    // 3. Design Rule Check (DRC) – collects and renders alerts
-    // ----------------------------------------------
+    // ===== Design Rule Check (DRC) – extracted logic =====
     const renderDRC = () => {
         const activeAlerts = [];
-
-        // Safety guard
         if (!nodes || !Array.isArray(nodes)) return null;
 
-        // 3a. Check each node for floating inputs, bus shorts, unused outputs
         nodes.forEach((node) => {
             if (!node || !node.data) return;
-            // Skip splitter/bundler nodes – they have special handling
             const isSplitterOrBundler = !!(node.data.isSplitter || node.data.isBundler);
             if (isSplitterOrBundler) return;
 
@@ -251,7 +217,6 @@ const LeftPanel = ({
             const nodeOutputs = node.data.outputs || [];
             const safeEdges = edges || [];
 
-            // Input ports: check for floating or multiple drivers
             nodeInputs.forEach((port) => {
                 if (!port || !port.name) return;
                 const connected = safeEdges.filter(
@@ -279,7 +244,6 @@ const LeftPanel = ({
                 }
             });
 
-            // Output ports: check for unused (no connection, not exposed)
             nodeOutputs.forEach((port) => {
                 if (!port || !port.name) return;
                 const connected = safeEdges.filter(
@@ -297,7 +261,6 @@ const LeftPanel = ({
             });
         });
 
-        // 3b. Check edges for width mismatches between source and target ports
         const safeEdgesForMismatches = edges || [];
         safeEdgesForMismatches.forEach((edge) => {
             if (!edge || !edge.source || !edge.target) return;
@@ -322,7 +285,6 @@ const LeftPanel = ({
             }
         });
 
-        // No alerts – show success message
         if (activeAlerts.length === 0) {
             return (
                 <div
@@ -338,7 +300,6 @@ const LeftPanel = ({
             );
         }
 
-        // 3c. Render the list of alerts
         return (
             <div
                 style={{
@@ -357,7 +318,6 @@ const LeftPanel = ({
                     if (!alert || !alert.node) return null;
                     const targetNodeId = alert.node.id;
 
-                    // Click handler: jump to the problematic node and flash it
                     const handleAlertClick = () => {
                         setSelectedNodeId(targetNodeId);
                         setSelectedEdgeId(alert.edgeId || null);
@@ -365,7 +325,6 @@ const LeftPanel = ({
                             const posX = alert.node.position.x ?? 0;
                             const posY = alert.node.position.y ?? 0;
                             setCenter(posX + 90, posY + 60, { zoom: 1.2, duration: 400 });
-                            // Flash the node
                             setNodes((nds) =>
                                 nds.map((n) =>
                                     n.id === targetNodeId
@@ -433,12 +392,9 @@ const LeftPanel = ({
         );
     };
 
-    // ----------------------------------------------
-    // 4. Library tab – standard cells + custom instantiation
-    // ----------------------------------------------
+    // ===== Library tab content =====
     const renderLibrary = () => (
         <div style={{ overflowY: 'auto', flex: 1 }}>
-            {/* Standard Cell Library dropdown */}
             <div style={s.panelSection}>
                 <div style={{ ...s.sectionTitle, marginBottom: '10px' }}>
                     Standard Cell Library
@@ -522,7 +478,7 @@ const LeftPanel = ({
                     </div>
                     <button
                         onClick={() => spawnPrebuilt(selectedStandardBlock)}
-                        onMouseEnter={(e) => hoverScaleShadow(e)}
+                        onMouseEnter={hoverScaleShadow}
                         onMouseLeave={unhoverScaleShadow}
                         style={{
                             ...s.smallBtn,
@@ -539,7 +495,6 @@ const LeftPanel = ({
 
             <div style={s.divider} />
 
-            {/* Custom instantiation form */}
             <div style={s.panelSection}>
                 <div style={{ ...s.sectionTitle, marginBottom: '10px' }}>
                     Custom Instantiation
@@ -571,8 +526,17 @@ const LeftPanel = ({
                     </div>
                     <button
                         type="submit"
-                        onMouseEnter={(e) => hoverScaleShadow(e)}
-                        onMouseLeave={unhoverScaleShadow}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'scale(1.05)';
+                            e.currentTarget.style.boxShadow =
+                                '0px 0px 20px rgba(99, 7, 247, 0.7)';
+                            e.currentTarget.style.filter = 'brightness(1.2)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'scale(1)';
+                            e.currentTarget.style.boxShadow = 'none';
+                            e.currentTarget.style.filter = 'brightness(1)';
+                        }}
                         style={{
                             ...s.primaryBtn,
                             opacity: newModuleName.trim() ? 1 : 0.4,
@@ -594,7 +558,6 @@ const LeftPanel = ({
 
             <div style={s.divider} />
 
-            {/* DRC section */}
             <div style={s.panelSection}>
                 <div style={{ ...s.sectionTitle, marginBottom: '10px' }}>
                     Design Rule Check (DRC)
@@ -602,7 +565,6 @@ const LeftPanel = ({
                 {renderDRC()}
             </div>
 
-            {/* Bottom hint */}
             <div
                 style={{
                     display: 'flex',
@@ -636,9 +598,7 @@ const LeftPanel = ({
         </div>
     );
 
-    // ----------------------------------------------
-    // 5. Search tab – module/instance search
-    // ----------------------------------------------
+    // ===== Search tab content =====
     const renderSearch = () => (
         <div
             style={{
@@ -734,8 +694,7 @@ const LeftPanel = ({
                                     padding: '10px 12px',
                                     borderRadius: '6px',
                                     cursor: 'pointer',
-                                    border: `1px solid ${isFocused ? t.primary : t.border
-                                        }`,
+                                    border: `1px solid ${isFocused ? t.primary : t.border}`,
                                     background: isFocused
                                         ? theme === 'dark'
                                             ? '#0a1628'
@@ -846,9 +805,7 @@ const LeftPanel = ({
         </div>
     );
 
-    // ----------------------------------------------
-    // 6. Trace tab – hierarchy and net tracing
-    // ----------------------------------------------
+    // ===== Trace tab content =====
     const renderTrace = () => (
         <div
             style={{
@@ -959,7 +916,6 @@ const LeftPanel = ({
                                         background: t.bgTertiary,
                                     }}
                                 >
-                                    {/* Header – click to expand/collapse */}
                                     <div
                                         onClick={() =>
                                             setHierarchyExpanded((p) => ({
@@ -1062,7 +1018,6 @@ const LeftPanel = ({
                                         </div>
                                     </div>
 
-                                    {/* Expanded content */}
                                     {isOpen && (
                                         <div
                                             style={{
@@ -1072,7 +1027,6 @@ const LeftPanel = ({
                                                 gap: '8px',
                                             }}
                                         >
-                                            {/* Drivers */}
                                             {drivers.length > 0 && (
                                                 <div>
                                                     <div
@@ -1171,7 +1125,6 @@ const LeftPanel = ({
                                                 </div>
                                             )}
 
-                                            {/* Fanout */}
                                             {Object.keys(fanoutByPort).length > 0 && (
                                                 <div>
                                                     <div
@@ -1315,7 +1268,6 @@ const LeftPanel = ({
                                                 </div>
                                             )}
 
-                                            {/* Unconnected inputs */}
                                             {unconnectedInputs.length > 0 && (
                                                 <div>
                                                     <div
@@ -1346,8 +1298,8 @@ const LeftPanel = ({
                                                                         ? '#1c0000'
                                                                         : '#fff5f5',
                                                                 border: `1px solid ${theme === 'dark'
-                                                                        ? '#3a0000'
-                                                                        : '#fca5a5'
+                                                                    ? '#3a0000'
+                                                                    : '#fca5a5'
                                                                     }`,
                                                             }}
                                                         >
@@ -1379,7 +1331,6 @@ const LeftPanel = ({
                                                 </div>
                                             )}
 
-                                            {/* Empty state for this module */}
                                             {drivers.length === 0 &&
                                                 Object.keys(fanoutByPort).length ===
                                                 0 &&
@@ -1396,7 +1347,6 @@ const LeftPanel = ({
                                                     </div>
                                                 )}
 
-                                            {/* Jump button */}
                                             <button
                                                 onClick={() => {
                                                     const targetNodeId = node.id;
@@ -1455,9 +1405,8 @@ const LeftPanel = ({
     );
 
     // ============================
-    // Main render: collapsed or expanded
+    // Main render
     // ============================
-
     if (leftCollapsed) {
         return <div style={s.leftPanel}>{renderCollapsed()}</div>;
     }

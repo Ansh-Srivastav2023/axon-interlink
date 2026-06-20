@@ -27,7 +27,7 @@ export default function FlowCanvas() {
     /* ============================================================
        1. THEME & UI STATE
        ============================================================ */
-    const [theme, setTheme] = useState('light');
+    const [theme, setTheme] = useState('dark');
     const t = themes[theme];
     const mainRef = useRef(null);
     const helpColors = theme === 'dark'
@@ -112,7 +112,7 @@ export default function FlowCanvas() {
        ============================================================ */
     const [moduleSearchQuery, setModuleSearchQuery] = useState('');
     const [moduleSearchFocusIdx, setModuleSearchFocusIdx] = useState(0);
-    const [setSearchHighlightIds] = useState(new Set());
+    const [, setSearchHighlightIds] = useState(new Set());
 
     const [hierarchySearchQuery, setHierarchySearchQuery] = useState('');
     const [hierarchyResults, setHierarchyResults] = useState(null);
@@ -489,7 +489,7 @@ export default function FlowCanvas() {
     /* ============================================================
        14. GLOW EFFECT (FOR EDGES)
        ============================================================ */
-    const [hoveredNetSource] = useState(null);
+    const [hoveredNetSource,] = useState(null);
     useEffect(() => {
         setEdges(eds => {
             let changed = false;
@@ -1123,18 +1123,29 @@ export default function FlowCanvas() {
         setSelectedNodeId(null);
         setGlowingNet(null);
         setTraceGlowingEdgeId(edgeId);
+        
         setEdges(eds => eds.map(e =>
             e.id === edgeId
                 ? { ...e, selected: true, data: { ...e.data, isFlashing: true } }
                 : { ...e, selected: false, data: { ...e.data, isFlashing: false } }
         ));
+        
         setTimeout(() => {
             setEdges(eds => eds.map(e =>
                 e.id === edgeId ? { ...e, data: { ...e.data, isFlashing: false } } : e
             ));
         }, 1600);
-        const n = nodes.find(nd => nd.id === nodeId);
-        if (n) setCenter(n.position.x + 90, n.position.y + 60, { zoom: 1.1, duration: 400 });
+
+        // FIX: Delay the camera pan by a fraction of a second (50ms).
+        // This prevents React Flow from aborting the animation due to the 
+        // immediate 'edges' array mutations happening above and in your useEffects.
+        setTimeout(() => {
+            const n = nodes.find(nd => nd.id === nodeId);
+            if (n && n.position) {
+                // Matched the exact zoom and duration parameters from your jumpToNode function
+                setCenter(n.position.x + 90, n.position.y + 60, { zoom: 1.2, duration: 500 });
+            }
+        }, 50);
     };
 
 
