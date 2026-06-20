@@ -271,7 +271,7 @@ const LeftPanel = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    background: 'linear-gradient(90deg, #6e01dc, #23dcdc)',
+                    background: "linear-gradient(90deg, #eb2525, #5004c8)",
                     color: '#fff',
                     border: 'none',
                     transition: 'all 0.2s',

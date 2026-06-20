@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { addEdge, useNodesState, useEdgesState, useReactFlow, reconnectEdge, ConnectionMode } from '@xyflow/react';
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 
-import { ResizeHandle, SmartEdge, LeftPanel, Canvas, RightPanel } from './edges';
+import { ResizeHandle, SmartEdge, LeftPanel, Canvas, RightPanel } from './components';
 import { GateNode, HardwareNode, SplitterNode } from './nodes'
 
 import { themes } from './styles';
