@@ -589,7 +589,6 @@ const HelpModal = ({ showHelp, setShowHelp, theme, t, kbdStyle }) => {
         >
             <div
                 style={{
-                    border: "4px solid transparent",
                     borderRadius: "30px",
                     padding: "24px",
                     maxWidth: "1000px",
@@ -599,8 +598,9 @@ const HelpModal = ({ showHelp, setShowHelp, theme, t, kbdStyle }) => {
                     flexDirection: "column",
                     color: t.textHeading,
                     boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
-
+                    
                     // Gradient border fix
+                    border: "4px solid transparent",
                     backgroundImage: `linear-gradient(${t.bgSecondary}, ${t.bgSecondary}), linear-gradient(90deg, #c1067d, #4800ff)`,
                     backgroundOrigin: "border-box",
                     backgroundClip: "padding-box, border-box",

@@ -1,9 +1,12 @@
-export const AppLogo = ({ size = 28, s }) => {
+export const AppLogo = ({ size = 28, t }) => {
+    // Detect mobile layout footprint
+    const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+
     return (
         <div style={{ display: "flex", alignItems: "center" }}>
             <svg
-                width={size}
-                height={size}
+                width={isMobile ? 38 : size} // Scale down slightly on mobile screens
+                height={isMobile ? 38 : size}
                 viewBox="0 0 512 512"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
@@ -53,11 +56,16 @@ export const AppLogo = ({ size = 28, s }) => {
                 </g>
             </svg>
 
+            {/* RESPONSIVE TEXT WRAPPER CONTAINER */}
             <div
                 style={{
-                    ...s.headerTitle,
                     marginLeft: "8px",
-                    fontSize: "32px",
+                    // Use flexbox column layout to force stacking on mobile viewports
+                    display: "flex",
+                    flexDirection: isMobile ? "column" : "row",
+                    alignItems: isMobile ? "flex-start" : "center",
+                    fontSize: isMobile ? "14px" : "32px", // Tight, matching sizing for mobile header rows
+                    lineHeight: isMobile ? "1.1" : "1",
                     fontFamily: "monospace",
                     fontWeight: 300,
                     letterSpacing: "0.02em",
@@ -65,13 +73,13 @@ export const AppLogo = ({ size = 28, s }) => {
                     MozOsxFontSmoothing: "grayscale",
                 }}
             >
-                Axon{" "}
+                <span style={{ color: t?.textHeading || "#ffffff" }}>Axon{isMobile ? "" : "\u00A0"}</span>
                 <span
                     style={{
-                        background: "linear-gradient(90deg, #6D28D9, #2563EB)",
+                        background: "linear-gradient(90deg, #7C3AED, #2563EB)",
                         backgroundClip: "text",
                         WebkitBackgroundClip: "text",
-                        fontWeight: 550,
+                        fontWeight: 600,
                         color: "transparent",
                         WebkitTextFillColor: "transparent",
                     }}

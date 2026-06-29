@@ -173,7 +173,7 @@ const LeftPanel = ({
                         width: '40px',
                         height: '40px',
                         border: 'none',
-                        background: "linear-gradient(90deg, #eb2525, #5004c8)",
+                        background: "linear-gradient(90deg, #0d00ff, #c500e8)",
                         color: '#fff',
                         transition: 'all 0.2s ease',
                     }}
@@ -195,7 +195,7 @@ const LeftPanel = ({
                     alignItems: 'center',
                     justifyContent: 'center',
                     margin: 0,
-                    background: 'linear-gradient(90deg, #1179f9, #4a10fa)',
+                    background: 'linear-gradient(90deg, #0015ff, #4a10fa)',
                     border: 'none',
                     borderRadius: '50%',
                     cursor: 'pointer',
@@ -246,7 +246,7 @@ const LeftPanel = ({
                             fontWeight: 600,
                             background:
                                 leftTab === tab
-                                    ? 'linear-gradient(90deg, #2563EB, #6D28D9)'
+                                    ? 'linear-gradient(90deg, #bb00ff, #1900ff)'
                                     : 'transparent',
                             color: leftTab === tab ? '#fff' : t.textSecondary,
                         }}
@@ -271,7 +271,7 @@ const LeftPanel = ({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    background: "linear-gradient(90deg, #eb2525, #5004c8)",
+                    background: "linear-gradient(90deg, #0015ff, #4a10fa)",
                     color: '#fff',
                     border: 'none',
                     transition: 'all 0.2s',
@@ -604,7 +604,7 @@ const LeftPanel = ({
                         style={{
                             ...s.smallBtn,
                             color: '#fff',
-                            background: 'linear-gradient(90deg, #d92828, #9225eb)',
+                            background: 'linear-gradient(90deg, #282ed9, #d204dc)',
                             border: 'none',
                             fontWeight: 800,
                         }}
@@ -664,7 +664,7 @@ const LeftPanel = ({
                             opacity: newModuleName.trim() ? 1 : 0.4,
                             cursor: newModuleName.trim() ? 'pointer' : 'not-allowed',
                             background: newModuleName.trim()
-                                ? 'linear-gradient(90deg, #9c25eb, #d92828)'
+                                ? 'linear-gradient(90deg, #282ed9, #d204dc)'
                                 : 'transparent',
                             color: '#fff',
                             transition:
@@ -1130,7 +1130,7 @@ const LeftPanel = ({
                 {/* 6c. Top-Level Module Port Interface Summary Board */}
                 <div style={{ ...s.panelSection, paddingTop: '4px' }}>
                     <div style={{ ...s.sectionTitle, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        Top Module Interface Pins ({topInputs.length + topOutputs.length + (usesClk ? 1 : 0) + (usesRst ? 1 : 0)})
+                        Top Module Interface ({topInputs.length + topOutputs.length + (usesClk ? 1 : 0) + (usesRst ? 1 : 0)})
                     </div>
 
                     <div style={{

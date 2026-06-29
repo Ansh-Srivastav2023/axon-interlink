@@ -1,4 +1,5 @@
-import { IconBox, IconX, IconTrace } from '../styles/icons'; // adjust paths
+import { IconBox, IconX, IconTrace } from '../styles/icons';
+import { useState, useEffect } from 'react';
 
 // ============================
 // Constants
@@ -6,7 +7,7 @@ import { IconBox, IconX, IconTrace } from '../styles/icons'; // adjust paths
 const EDGE_COLORS = ['#ef4444', '#10b981', '#f59e0b', '#a855f7', '#06b6d4'];
 
 // ============================
-// Sub‑components (defined inside ContextualModal to access props/state)
+// ContextualModal Component
 // ============================
 const ContextualModal = ({
     activeModal,
@@ -16,8 +17,6 @@ const ContextualModal = ({
     theme,
     t,
     s,
-    modalTab,
-    setModalTab,
     exposedPorts,
     currentModuleCode,
     handleModalDragStart,
@@ -25,7 +24,7 @@ const ContextualModal = ({
     updateSelectedNode,
     togglePortSwap,
     toggleExposePort,
-    handleCodeChange,
+    handleCodeChange,       // kept for compatibility but no longer used for the main code editor
     getPortLabel,
     parsePorts,
     recordHistory,
@@ -33,8 +32,19 @@ const ContextualModal = ({
     setEdges,
     setSelectedNodeId,
     setGlowingNet,
-    highlightVerilogCode
+    highlightVerilogCode,
+    onSaveCode              // NEW: callback to save code changes on Apply
 }) => {
+    const [fullCodeModalOpen, setFullCodeModalOpen] = useState(false);
+    const [localCode, setLocalCode] = useState('');        // local copy of the code being edited
+
+    // Reset local code when a new node modal is opened
+    useEffect(() => {
+        if (activeModal.type === 'node') {
+            setLocalCode(currentModuleCode);
+        }
+    }, [activeModal, currentModuleCode]);
+
     if (!activeModal.type) return null;
 
     const isNode = activeModal.type === 'node';
@@ -43,8 +53,93 @@ const ContextualModal = ({
     // ---------- Helpers ----------
     const closeModal = () => setActiveModal({ type: null, id: null });
 
+    // ---------- KeyDown handler for code editors (uses localCode) ----------
+    const handleKeyDown = (e) => {
+        const textarea = e.currentTarget;
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const currentValue = localCode;  // use local state
+
+        // Initialize historical stacks on the textarea DOM object if they don't exist yet
+        if (!textarea._undoStack) textarea._undoStack = [];
+        if (!textarea._redoStack) textarea._redoStack = [];
+
+        // Helper function to update local state and preserve code text-history frames
+        const updateLocalValueWithHistory = (oldVal, newVal, selectionPos) => {
+            textarea._undoStack.push({ value: oldVal, start: start, end: end });
+            textarea._redoStack = []; // Clear redo stack on new typing actions
+
+            setLocalCode(newVal);
+
+            setTimeout(() => {
+                textarea.selectionStart = textarea.selectionEnd = selectionPos;
+            }, 0);
+        };
+
+        // 1. HANDLE TAB KEY (Insert 2 spaces)
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            const tabSpaces = "  ";
+            const newValue = currentValue.substring(0, start) + tabSpaces + currentValue.substring(end);
+            updateLocalValueWithHistory(currentValue, newValue, start + tabSpaces.length);
+            return;
+        }
+
+        // 2. HANDLE ENTER KEY (Smart Auto-Indentation)
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const textBeforeCursor = currentValue.substring(0, start);
+            const lineStartIndex = textBeforeCursor.lastIndexOf('\n') + 1;
+            const currentLine = textBeforeCursor.substring(lineStartIndex);
+            const whitespaceMatch = currentLine.match(/^([ \t]*)/);
+            let indent = whitespaceMatch ? whitespaceMatch[1] : "";
+            const cleanLine = currentLine.trim().toLowerCase();
+            if (cleanLine.endsWith('(') || cleanLine.endsWith('begin') || cleanLine.endsWith('generate')) {
+                indent += "  ";
+            }
+            const insertText = "\n" + indent;
+            const newValue = currentValue.substring(0, start) + insertText + currentValue.substring(end);
+            updateLocalValueWithHistory(currentValue, newValue, start + insertText.length);
+            return;
+        }
+
+        // 3. CAPTURE CUSTOM HANDLED CTRL+Z / CTRL+Y INSIDE TEXTAREA
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+            if (textarea._undoStack && textarea._undoStack.length > 0) {
+                e.preventDefault();
+                e.stopPropagation(); // Stops global schematic undo trigger interference
+
+                const previousFrame = textarea._undoStack.pop();
+                textarea._redoStack.push({ value: currentValue, start: start, end: end });
+
+                setLocalCode(previousFrame.value);
+                setTimeout(() => {
+                    textarea.selectionStart = previousFrame.start;
+                    textarea.selectionEnd = previousFrame.end;
+                }, 0);
+                return;
+            }
+        }
+
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+            if (textarea._redoStack && textarea._redoStack.length > 0) {
+                e.preventDefault();
+                e.stopPropagation(); // Stops global schematic redo trigger interference
+
+                const nextFrame = textarea._redoStack.pop();
+                textarea._undoStack.push({ value: currentValue, start: start, end: end });
+
+                setLocalCode(nextFrame.value);
+                setTimeout(() => {
+                    textarea.selectionStart = nextFrame.start;
+                    textarea.selectionEnd = nextFrame.end;
+                }, 0);
+                return;
+            }
+        }
+    };
+
     // ---------- Sub‑components ----------
-    // This is both for Wire(edge) and Module Configure Window...
     const ModalHeader = ({ title, icon, onClose }) => (
         <div style={{
             display: 'flex',
@@ -76,59 +171,7 @@ const ContextualModal = ({
         </div>
     );
 
-    // To switch between Properties and RTL Code Editor
-    const Tabs = () => (
-        <div style={{
-            display: 'flex',
-            gap: '4px',
-            background: t.bgTertiary,
-            padding: '4px',
-            borderRadius: '8px',
-            marginBottom: '14px',
-            userSelect: 'none'
-        }}>
-            {['properties', 'code'].map(tab => (
-                <button
-                    key={tab}
-                    onClick={() => setModalTab(tab)}
-                    style={{
-                        flex: 1,
-                        padding: '6px',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        border: 'none',
-                        borderRadius: '6px',
-                        cursor: 'pointer',
-                        background: modalTab === tab ? t.bgSecondary : 'transparent',
-                        color: modalTab === tab ? t.textHeading : t.textSecondary,
-                        transition: 'all 0.15s',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px'
-                    }}
-                >
-                    {tab === 'properties' ? (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" />
-                            <line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" />
-                            <line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" />
-                            <circle cx="4" cy="12" r="2" /><circle cx="12" cy="10" r="2" /><circle cx="20" cy="14" r="2" />
-                        </svg>
-                    ) : (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                            <polyline points="14 2 14 8 20 8" />
-                            <line x1="8" y1="13" x2="16" y2="13" /><line x1="8" y1="17" x2="16" y2="17" />
-                        </svg>
-                    )}
-                    {tab === 'properties' ? 'Properties' : 'RTL Code Editor'}
-                </button>
-            ))}
-        </div>
-    );
-
-    // Promote To Top
+    // ---- Exposure Checklist (unchanged) ----
     const ExposureChecklist = ({ ports, isInput, nodeId, disabledCheck }) => (
         <div style={{
             display: 'flex',
@@ -175,7 +218,6 @@ const ContextualModal = ({
         const isSplitterOrBundler = !!(node.data.isSplitter || node.data.isBundler);
         const currentPorts = node.data.isSplitter ? (node.data.outputs || []) : (node.data.inputs || []);
 
-        // Splitter / Bundler panel
         const renderSplitterPanel = () => (
             <>
                 <div style={{
@@ -289,7 +331,6 @@ const ContextualModal = ({
             </>
         );
 
-        // Properties panel in Module Configuration
         const renderPropertiesPanel = () => (
             <>
                 <div style={s.formGroup}>
@@ -318,64 +359,92 @@ const ContextualModal = ({
                 </div>
                 <div style={s.formGroup}>
                     <label style={s.label}>Layout Symmetry Placement</label>
-                    <button
-                        type="button"
-                        onClick={(e) => {
-                            togglePortSwap();
-
-                            e.currentTarget.style.transform = "scale(0.95)";
-
-                            setTimeout(() => {
-                                e.currentTarget.style.transform = "scale(1)";
-                            }, 90);
-                        }}
-                        onMouseEnter={(e) => {
-                            e.currentTarget.style.background = t.primary;
-                            e.currentTarget.style.color = "#fff";
-                            e.currentTarget.style.boxShadow = "0 6px 18px rgba(37,99,235,.25)";
-                            e.currentTarget.style.transform = "translateY(-1px)";
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.background = t.bgTertiary;
-                            e.currentTarget.style.color = t.textHeading;
-                            e.currentTarget.style.boxShadow = "none";
-                            e.currentTarget.style.transform = "translateY(0)";
-                        }}
-                        style={{
-                            ...s.smallBtn,
-                            width: "115px",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: "6px",
-                            padding: "8px 12px",
-                            borderRadius: "8px",
-                            border: `1px solid ${t.border}`,
-                            background: t.bgTertiary,
-                            color: t.textHeading,
-                            fontWeight: 600,
-                            transition: "all .18s ease",
-                            cursor: "pointer",
-                        }}
-                    >
-                        <svg
-                            width="15"
-                            height="15"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                togglePortSwap();
+                                e.currentTarget.style.transform = "scale(0.95)";
+                                setTimeout(() => {
+                                    e.currentTarget.style.transform = "scale(1)";
+                                }, 90);
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.background = t.primary;
+                                e.currentTarget.style.color = "#fff";
+                                e.currentTarget.style.boxShadow = "0 6px 18px rgba(37,99,235,.25)";
+                                e.currentTarget.style.transform = "translateY(-1px)";
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.background = t.bgTertiary;
+                                e.currentTarget.style.color = t.textHeading;
+                                e.currentTarget.style.boxShadow = "none";
+                                e.currentTarget.style.transform = "translateY(0)";
+                            }}
+                            style={{
+                                ...s.smallBtn,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: "6px",
+                                padding: "8px 12px",
+                                borderRadius: "8px",
+                                border: `1px solid ${t.border}`,
+                                background: t.bgTertiary,
+                                color: t.textHeading,
+                                fontWeight: 600,
+                                transition: "all .18s ease",
+                                cursor: "pointer",
+                            }}
                         >
-                            <path d="M17 3l4 4-4 4" />
-                            <path d="M3 7h18" />
-                            <path d="M7 21l-4-4 4-4" />
-                            <path d="M21 17H3" />
-                        </svg>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M17 3l4 4-4 4" />
+                                <path d="M3 7h18" />
+                                <path d="M7 21l-4-4 4-4" />
+                                <path d="M21 17H3" />
+                            </svg>
+                            Flip Ports
+                        </button>
 
-                        Flip Ports
-                    </button>
+                        <button
+                            type="button"
+                            onClick={() => setFullCodeModalOpen(true)}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.background = t.primary;
+                                e.currentTarget.style.color = "#fff";
+                                e.currentTarget.style.boxShadow = "0 6px 18px rgba(37,99,235,.25)";
+                                e.currentTarget.style.transform = "translateY(-1px)";
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.background = t.bgTertiary;
+                                e.currentTarget.style.color = t.textHeading;
+                                e.currentTarget.style.boxShadow = "none";
+                                e.currentTarget.style.transform = "translateY(0)";
+                            }}
+                            style={{
+                                ...s.smallBtn,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: "6px",
+                                padding: "8px 12px",
+                                borderRadius: "8px",
+                                border: `1px solid ${t.border}`,
+                                background: t.bgTertiary,
+                                color: t.textHeading,
+                                fontWeight: 600,
+                                transition: "all .18s ease",
+                                cursor: "pointer",
+                            }}
+                        >
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M4 7h16" />
+                                <path d="M4 12h12" />
+                                <path d="M4 17h8" />
+                            </svg>
+                            Full Editor
+                        </button>
+                    </div>
                 </div>
                 <div style={s.formGroup}>
                     <label style={s.label}>Top-Level I/O Exposure</label>
@@ -395,71 +464,6 @@ const ContextualModal = ({
                     />
                 </div>
             </>
-        );
-
-        // Code editor panel in Module Configuration
-        const renderCodePanel = () => (
-            <div style={{ ...s.formGroup, flex: 1, display: 'flex', flexDirection: 'column', minHeight: '260px' }}>
-                <label style={s.label}>Behavioral RTL Code Implementation</label>
-                <div style={{
-                    flex: 1,
-                    marginTop: '4px',
-                    minHeight: '220px',
-                    borderRadius: '6px',
-                    overflow: 'auto',
-                    background: t.codeBg,
-                    border: `1px solid ${t.borderStrong}`
-                }}>
-                    <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr',
-                        gridTemplateRows: 'auto'
-                    }}>
-                        <pre
-                            style={{
-                                gridArea: '1/1',
-                                margin: 0,
-                                padding: '12px',
-                                fontFamily: '"SF Mono", Menlo, Monaco, monospace',
-                                fontSize: '12px',
-                                lineHeight: '1.5',
-                                whiteSpace: 'pre-wrap',
-                                wordBreak: 'break-all',
-                                background: 'transparent',
-                                color: 'inherit',
-                                pointerEvents: 'none',
-                                overflow: 'visible'
-                            }}
-                            dangerouslySetInnerHTML={{ __html: highlightVerilogCode(currentModuleCode + '\n', theme) }}
-                        />
-                        <textarea
-                            value={currentModuleCode}
-                            onChange={handleCodeChange}
-                            spellCheck="false"
-                            style={{
-                                gridArea: '1/1',
-                                margin: 0,
-                                padding: '12px',
-                                fontFamily: '"SF Mono", Menlo, Monaco, monospace',
-                                fontSize: '12px',
-                                lineHeight: '1.5',
-                                background: 'transparent',
-                                color: 'transparent',
-                                caretColor: theme === 'dark' ? '#ffffff' : '#111827',
-                                whiteSpace: 'pre-wrap',
-                                wordBreak: 'break-all',
-                                resize: 'none',
-                                border: 'none',
-                                outline: 'none',
-                                boxSizing: 'border-box',
-                                overflow: 'hidden',
-                                width: '100%',
-                                height: 'auto'
-                            }}
-                        />
-                    </div>
-                </div>
-            </div>
         );
 
         const renderFooter = () => (
@@ -495,6 +499,14 @@ const ContextualModal = ({
                 <button
                     onClick={(e) => {
                         e.currentTarget.style.transform = 'scale(0.94)';
+                        // Apply code changes if this is a hardware node (not splitter/bundler)
+                        const node = nodes.find(n => n.id === targetId);
+                        if (node && !node.data.isSplitter && !node.data.isBundler) {
+                            // Only save if code has changed (optional)
+                            if (localCode !== currentModuleCode) {
+                                onSaveCode(node.data.moduleName, localCode);
+                            }
+                        }
                         setTimeout(closeModal, 80);
                     }}
                     style={{
@@ -512,7 +524,6 @@ const ContextualModal = ({
             </div>
         );
 
-        // Main node return
         return (
             <>
                 <ModalHeader
@@ -520,7 +531,6 @@ const ContextualModal = ({
                     icon={<IconBox size={20} />}
                     onClose={closeModal}
                 />
-                {!isSplitterOrBundler && <Tabs />}
                 <div style={{
                     height: '320px',
                     overflowY: 'auto',
@@ -531,7 +541,7 @@ const ContextualModal = ({
                     gap: '12px',
                     scrollbarColor: theme === 'dark' ? '#333333 #050505' : '#cbd5e1 #f3f4f6'
                 }}>
-                    {isSplitterOrBundler ? renderSplitterPanel() : (modalTab === 'properties' ? renderPropertiesPanel() : renderCodePanel())}
+                    {isSplitterOrBundler ? renderSplitterPanel() : renderPropertiesPanel()}
                 </div>
                 {renderFooter()}
             </>
@@ -539,7 +549,6 @@ const ContextualModal = ({
     };
 
     // ---- Edge content ----
-    // To render wires and access its properties...
     const renderEdgeContent = () => {
         const edge = edges.find(e => e.id === targetId);
         if (!edge) return null;
@@ -575,7 +584,7 @@ const ContextualModal = ({
                             />
                             <span style={{ fontSize: '12px', color: t.textSecondary }}>bits width array</span>
                         </div>
-                            <span style={{ fontSize: '14px', color: theme === "dark" ? "#4b69ff" : "#174dff" }}> Note: Max <strong>Width</strong> possible is <strong>128</strong>. </span>
+                        <span style={{ fontSize: '14px', color: theme === "dark" ? "#4b69ff" : "#174dff" }}> Note: Max <strong>Width</strong> possible is <strong>128</strong>. </span>
                     </div>
                     <div style={s.formGroup}>
                         <label style={s.label}>Net Highlighter Schematic Tint</label>
@@ -632,7 +641,206 @@ const ContextualModal = ({
     };
 
     // ============================
-    // Main modal wrapper
+    // Full‑size Code Editor Modal (uses localCode)
+    // ============================
+    const renderFullCodeModal = () => {
+        if (!fullCodeModalOpen) return null;
+
+        const handleBackdropClick = (e) => {
+            if (e.target === e.currentTarget) {
+                setFullCodeModalOpen(false);
+            }
+        };
+
+        const handleKeyDownOnModal = (e) => {
+            if (e.key === 'Escape') {
+                setFullCodeModalOpen(false);
+            }
+        };
+
+        return (
+            <div
+                onClick={handleBackdropClick}
+                onKeyDown={handleKeyDownOnModal}
+                tabIndex={-1}
+                style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    width: '100vw',
+                    height: '100vh',
+                    background: 'rgba(0,0,0,0.6)',
+                    zIndex: 999999,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backdropFilter: 'blur(4px)',
+                }}
+            >
+                <div
+                    style={{
+                        width: '70vw',
+                        height: '70vh',
+                        background: t.bgSecondary,
+                        borderRadius: '30px',
+                        padding: '24px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        boxShadow: '0 24px 48px rgba(0,0,0,0.5)',
+                        border: "4px solid transparent",
+                        backgroundImage: `linear-gradient(${t.bgSecondary}, ${t.bgSecondary}), linear-gradient(90deg, #c1067d, #4800ff)`,
+                        backgroundOrigin: "border-box",
+                        backgroundClip: "padding-box, border-box",
+                    }}
+                >
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '16px',
+                    }}>
+                        <h3 style={{
+                            margin: 0,
+                            fontSize: '18px',
+                            fontFamily: 'monospace',
+                            fontWeight: 600,
+                            color: theme === 'dark' ? '#fff' : '#4400ff',
+                        }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                    <polyline points="14 2 14 8 20 8" />
+                                    <line x1="8" y1="13" x2="16" y2="13" /><line x1="8" y1="17" x2="16" y2="17" />
+                                </svg>
+                                RTL Code Editor – Full View
+                            </span>
+                        </h3>
+                        <button
+                            onClick={() => setFullCodeModalOpen(false)}
+                            style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: t.textSecondary,
+                                cursor: 'pointer',
+                                padding: '4px'
+                            }}
+                        >
+                            <IconX size={20} />
+                        </button>
+                    </div>
+
+                    <div style={{
+                        flex: 1,
+                        borderRadius: '8px',
+                        overflow: 'auto',
+                        background: t.codeBg,
+                        border: `1px solid ${t.borderStrong}`,
+                        width: '100%',
+                        scrollbarWidth: 'thin',
+                        scrollbarColor: theme === 'dark' ? '#333333 #050505' : '#cbd5e1 #f3f4f6',
+                        boxSizing: 'border-box',
+                        minHeight: 0,
+                    }}>
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr',
+                            gridTemplateRows: 'auto',
+                            width: 'max-content',
+                            minWidth: '100%',
+                            height: '100%',
+                        }}>
+                            <pre
+                                style={{
+                                    gridArea: '1/1',
+                                    margin: 0,
+                                    padding: '16px',
+                                    fontFamily: '"SF Mono", Menlo, Monaco, monospace',
+                                    fontSize: '14px',
+                                    lineHeight: '1.6',
+                                    whiteSpace: 'pre',
+                                    wordBreak: 'normal',
+                                    background: 'transparent',
+                                    color: 'inherit',
+                                    pointerEvents: 'none',
+                                    width: 'max-content',
+                                    minWidth: '100%',
+                                }}
+                                dangerouslySetInnerHTML={{ __html: highlightVerilogCode(localCode + '\n', theme) }}
+                            />
+                            <textarea
+                                value={localCode}
+                                onChange={(e) => setLocalCode(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                spellCheck="false"
+                                wrap="off"
+                                style={{
+                                    gridArea: '1/1',
+                                    margin: 0,
+                                    padding: '16px',
+                                    fontFamily: '"SF Mono", Menlo, Monaco, monospace',
+                                    fontSize: '14px',
+                                    lineHeight: '1.6',
+                                    background: 'transparent',
+                                    color: 'transparent',
+                                    caretColor: theme === 'dark' ? '#ffffff' : '#111827',
+                                    whiteSpace: 'pre',
+                                    wordBreak: 'normal',
+                                    resize: 'none',
+                                    border: 'none',
+                                    outline: 'none',
+                                    boxSizing: 'border-box',
+                                    width: 'max-content',
+                                    minWidth: '100%',
+                                    height: '100%',
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        gap: '12px',
+                        marginTop: '16px',
+                        paddingTop: '12px',
+                        borderTop: `1px solid ${t.border}`,
+                    }}>
+                        <button
+                            onClick={() => setFullCodeModalOpen(false)}
+                            style={{
+                                ...s.smallBtn,
+                                padding: '8px 20px',
+                                borderRadius: '8px',
+                                border: `1px solid ${t.border}`,
+                                background: t.bgTertiary,
+                                color: t.text,
+                                fontWeight: 600,
+                            }}
+                        >
+                            Close
+                        </button>
+                        <button
+                            onClick={() => setFullCodeModalOpen(false)}
+                            style={{
+                                ...s.primaryBtn,
+                                padding: '8px 24px',
+                                borderRadius: '8px',
+                                background: t.primary,
+                                color: '#fff',
+                                border: 'none',
+                                fontWeight: 600,
+                            }}
+                        >
+                            Done
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // ============================
+    // Main render
     // ============================
     const modalStyle = {
         position: 'fixed',
@@ -653,17 +861,20 @@ const ContextualModal = ({
         const node = nodes.find(n => n.id === targetId);
         if (!node) return null;
         return (
-            <div
-                onMouseDown={handleModalDragStart}
-                style={{
-                    ...modalStyle,
-                    width: '480px',
-                    border: `4px solid ${theme === 'dark' ? "rgba(0, 27, 233, 0.87)": "rgba(255, 1, 1, 0.87)"}`,
-                    boxShadow: theme === 'dark' ? `0 20px 40px rgba(0,0,0,0.6)` : '0 20px 40px rgba(0,0,0,0.15)'
-                }}
-            >
-                {renderNodeContent()}
-            </div>
+            <>
+                <div
+                    onMouseDown={handleModalDragStart}
+                    style={{
+                        ...modalStyle,
+                        width: '480px',
+                        border: `4px solid ${theme === 'dark' ? "rgba(0, 27, 233, 0.87)" : "rgba(255, 1, 1, 0.87)"}`,
+                        boxShadow: theme === 'dark' ? `0 20px 40px rgba(0,0,0,0.6)` : '0 20px 40px rgba(0,0,0,0.15)'
+                    }}
+                >
+                    {renderNodeContent()}
+                </div>
+                {renderFullCodeModal()}
+            </>
         );
     } else {
         const edge = edges.find(e => e.id === targetId);
@@ -674,7 +885,7 @@ const ContextualModal = ({
                 style={{
                     ...modalStyle,
                     width: '360px',
-                    border: `4px solid ${theme === 'dark' ? "rgba(0, 27, 233, 0.87)": "rgba(255, 1, 1, 0.87)"}`,
+                    border: `4px solid ${theme === 'dark' ? "rgba(0, 27, 233, 0.87)" : "rgba(255, 1, 1, 0.87)"}`,
                     boxShadow: theme === 'dark' ? '0 20px 40px rgba(0,0,0,0.6)' : '0 20px 40px rgba(0,0,0,0.15)'
                 }}
             >

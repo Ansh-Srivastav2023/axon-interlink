@@ -106,7 +106,7 @@ const RightPanel = ({
                         border: 'none',
                         width: '40px',
                         height: '40px',
-                        background: "linear-gradient(90deg, #eb2525, #5004c8)",
+                        background: "linear-gradient(90deg, #2528eb, #a601b1)",
                         color: '#fff',
                         transition: 'all 0.3s ease'
                     }}
@@ -130,7 +130,7 @@ const RightPanel = ({
                     alignItems: "center",
                     justifyContent: "center",
                     margin: 0,
-                    background: "linear-gradient(90deg, #1179f9, #4a10fa)",
+                    background: "linear-gradient(90deg, #0015ff, #4a10fa)",
                     border: "none",
                     borderRadius: "50%",
                     cursor: "pointer",
@@ -150,9 +150,10 @@ const RightPanel = ({
         <div style={s.panelHeader}>
             <div
                 style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '30px', // Adjust spacing here
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between", // pushes text left, button right
+                    width: "100%",
                 }}
             >
                 <span style={s.sectionTitle}>
@@ -161,10 +162,13 @@ const RightPanel = ({
 
                 <button
                     onClick={() => setRightCollapsed(true)}
-                    className={`sidebar-expand-btn ${theme === 'dark' ? 'dark' : 'light'}`}
+                    className={`sidebar-expand-btn ${theme === "dark" ? "dark" : "light"}`}
                     onMouseEnter={hoverScale}
                     onMouseLeave={unhover}
-                    style={{ ...s.iconBtn, marginTop: '45px' }}
+                    style={{
+                        ...s.iconBtn,
+                        marginTop: "45px", // remove manual offset
+                    }}
                     title="Collapse"
                 >
                     <IconChevronRight size={14} />
@@ -172,6 +176,7 @@ const RightPanel = ({
             </div>
         </div>
     );
+
 
 
     // ----- Render helper: the row of tabs (Code, Block Diagram, TB) and the copy button -----
@@ -235,7 +240,7 @@ const RightPanel = ({
                         className={`sidebar-expand-btn ${theme === 'dark' ? 'dark' : 'light'}`}
                         style={{
                             ...s.smallBtn,
-                            background: copied ? '#10b981' : "linear-gradient(90deg, #328eff, #4000ff)",
+                            background: copied ? '#10b981' : "linear-gradient(90deg, #0015ff, #4a10fa)",
                             color: '#fff',
                             top: '14px',
                             border: 'none',
