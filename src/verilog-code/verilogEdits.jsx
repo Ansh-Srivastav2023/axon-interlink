@@ -41,7 +41,7 @@ export const highlightVerilogCode = (rawCode, currentTheme) => {
         'signed', 'unsigned', 'static', 'automatic', 'local', 'protected',
         'virtual', 'pure', 'extern', 'covergroup', 'coverpoint', 'cross',
         'parameter', 'localparam', 'specparam', 'type', 'typedef', 'import', 'export',
-        'modport', 'clocking', 'default', 'global', 'wildcard', 'rand', 'randc'
+        'modport', 'clocking', 'default', 'global', 'wildcard', 'rand', 'randc', 'or'
     ];
 
     const systemTasks = [
