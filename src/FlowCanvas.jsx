@@ -1,12 +1,12 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { addEdge, useNodesState, useEdgesState, useReactFlow, reconnectEdge, ConnectionMode } from '@xyflow/react';
 
-import { ResizeHandle, SmartEdge, LeftPanel, Canvas, RightPanel } from './panelandcanvas';
+import { ResizeHandle, SmartEdge, LeftPanel, Canvas, RightPanel } from './components';
 import { GateNode, HardwareNode, SplitterNode } from './nodes';
 import { themes } from './styles';
 import getStyles from './styles/getStyles';
 import { STANDARD_LIBRARY, parsePorts, getPortLabel, getSmartSpawnPosition, validatePorts } from './utils/hardwareutils';
-import { highlightVerilogCode } from './verilog-code/verilogEdits';
+import { highlightVerilogCode, parseVerilogToPorts } from './verilog-code/verilogEdits';
 import Header from './utils/Header';
 import { HelpModal, ClearModal, SaveModal, ErrorModal, ContextualModal } from './modals';
 import { useFileOperations, useHistory } from './hooks';
@@ -658,71 +658,95 @@ export default function FlowCanvas() {
     }, [selectedNodeId, recordHistory, setNodes]);
 
     const updateSelectedNode = useCallback(
-        (field, value) => {
-            if (!selectedNodeId) return;
-            const nodeToUpdate = nodes.find((n) => n.id === selectedNodeId);
-            if (!nodeToUpdate) return;
+    (field, value) => {
+        if (!selectedNodeId) return;
+        const nodeToUpdate = nodes.find((n) => n.id === selectedNodeId);
+        if (!nodeToUpdate) return;
 
-            if (field === 'inputs' || field === 'outputs') {
-                const parsed = parsePorts(value);
-                const currentInputs = field === 'inputs' ? parsed : nodeToUpdate.data.inputs || [];
-                const currentOutputs = field === 'outputs' ? parsed : nodeToUpdate.data.outputs || [];
-                const error = validatePorts(currentInputs, currentOutputs);
-                if (error) {
-                    showError(error);
-                    return;
-                }
+        if (field === 'inputs' || field === 'outputs') {
+            const parsed = parsePorts(value);
+            const currentInputs = field === 'inputs' ? parsed : nodeToUpdate.data.inputs || [];
+            const currentOutputs = field === 'outputs' ? parsed : nodeToUpdate.data.outputs || [];
+            const error = validatePorts(currentInputs, currentOutputs);
+            if (error) {
+                showError(error);
+                return;
             }
-            recordHistory();
-            const oldModuleName = nodeToUpdate.data.moduleName;
-            const newValue = field.includes('puts') ? parsePorts(value) : value;
-            const newModuleName = field === 'moduleName' ? value.trim() : oldModuleName;
-            const newInputs = field === 'inputs' ? newValue : nodeToUpdate.data.inputs || [];
-            const newOutputs = field === 'outputs' ? newValue : nodeToUpdate.data.outputs || [];
+        }
+        
+        recordHistory();
+        const oldModuleName = nodeToUpdate.data.moduleName;
+        const newValue = field.includes('puts') ? parsePorts(value) : value;
+        const newModuleName = field === 'moduleName' ? value.trim() : oldModuleName;
+        
+        let newInputs = field === 'inputs' ? newValue : nodeToUpdate.data.inputs || [];
+        let newOutputs = field === 'outputs' ? newValue : nodeToUpdate.data.outputs || [];
 
-            setCustomCodes((prev) => {
-                const next = { ...prev };
-                let baseCode = next[oldModuleName];
-                if (!baseCode) {
-                    const pd = [];
-                    (nodeToUpdate.data.inputs || []).forEach((p) =>
-                        pd.push(`  input wire ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`)
-                    );
-                    (nodeToUpdate.data.outputs || []).forEach((p) =>
-                        pd.push(`  output logic ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`)
-                    );
-                    baseCode = `module ${oldModuleName} (\n${pd.join(',\n')}\n);\n\n// Write internal design logic here\n\nendmodule\n`;
-                }
-                const portDecls = [];
-                newInputs.forEach((p) =>
-                    portDecls.push(`  input wire ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`)
-                );
-                newOutputs.forEach((p) =>
-                    portDecls.push(`  output logic ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`)
-                );
-                const newSignature = `module ${newModuleName} (\n${portDecls.join(',\n')}\n);`;
-                const updatedCode = baseCode.replace(/module\s+\w+\s*\([\s\S]*?\);/, newSignature);
-                if (field === 'moduleName' && oldModuleName !== newModuleName) next[newModuleName] = updatedCode;
-                else next[oldModuleName] = updatedCode;
-                return next;
-            });
+        // Dynamic autoRoute evaluation mapping rules
+        const updatedAutoRoute = { ...(nodeToUpdate.data.autoRoute || {}) };
+        newInputs.forEach((p) => {
+            if (p.name === 'clk' || p.name === 'rst_n') {
+                updatedAutoRoute[p.name] = true;
+            }
+        });
 
-            if (field === 'inputs' || field === 'outputs') {
-                setNodes((nds) =>
-                    nds.map((n) =>
-                        n.data.moduleName === oldModuleName ? { ...n, data: { ...n.data, [field]: newValue } } : n
-                    )
-                );
+        // Generate the new uniform Verilog port signature array
+        const portDecls = [];
+        newInputs.forEach((p) =>
+            portDecls.push(`  input wire ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`)
+        );
+        newOutputs.forEach((p) =>
+            portDecls.push(`  output logic ${p.width > 1 ? `[${p.msb}:${p.lsb}] ` : ''}${p.name}`)
+        );
+        const newSignature = `module ${newModuleName} (\n${portDecls.join(',\n')}\n);`;
+
+        let synchronizedUpdatedCode = '';
+
+        // Update the code store map explicitly
+        setCustomCodes((prev) => {
+            const next = { ...prev };
+            let baseCode = next[oldModuleName];
+            
+            if (!baseCode) {
+                baseCode = `${newSignature}\n\n// Write internal design logic here\n\nendmodule\n`;
+            }
+
+            // Perform direct AST replacement regex swap
+            synchronizedUpdatedCode = baseCode.replace(/module\s+\w+\s*\([\s\S]*?\);/, newSignature);
+            
+            if (field === 'moduleName' && oldModuleName !== newModuleName) {
+                next[newModuleName] = synchronizedUpdatedCode;
+                delete next[oldModuleName];
             } else {
-                setNodes((nds) =>
-                    nds.map((n) =>
-                        n.id === selectedNodeId ? { ...n, data: { ...n.data, [field]: newModuleName } } : n
-                    )
-                );
+                next[oldModuleName] = synchronizedUpdatedCode;
             }
-        },
-        [selectedNodeId, nodes, recordHistory, setCustomCodes, setNodes, showError]
-    );
+            return next;
+        });
+
+        // Update the visual canvas nodes array
+        setNodes((nds) =>
+            nds.map((n) => {
+                // Check if this node shares the same module design definitions
+                if (n.data.moduleName === oldModuleName || n.id === selectedNodeId) {
+                    return { 
+                        ...n, 
+                        data: { 
+                            ...n.data, 
+                            moduleName: newModuleName,
+                            inputs: newInputs, 
+                            outputs: newOutputs,
+                            autoRoute: updatedAutoRoute,
+                            // Inject the string instantly to bypass parser validation drops
+                            code: synchronizedUpdatedCode 
+                        } 
+                    };
+                }
+                return n;
+            })
+        );
+    },
+    [selectedNodeId, nodes, recordHistory, setCustomCodes, setNodes, showError]
+);
 
     // ============================================================
     // 18. CODE EDITOR (RTL & TESTBENCH)
@@ -1457,24 +1481,30 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
     // ============================================================
     // 22. MODAL DRAG HANDLING
     // ============================================================
-    // Drag move handler – no memoization needed
-    const handleModalDragMove = (e) => {
+    const onDragEndRef = useRef(null);
+
+    // 1. Drag move handler
+    const handleModalDragMove = useCallback((e) => {
         if (!dragStartRef.current) return;
         const { startX, startY, initialX, initialY } = dragStartRef.current;
         setModalPos({
             x: initialX + (e.clientX - startX),
             y: initialY + (e.clientY - startY),
         });
-    };
+    }, []);
 
-    // Drag end handler – no memoization needed
-    const handleModalDragEnd = () => {
+    // 2. Drag end handler - wrapped safely in a useCallback
+    const handleModalDragEnd = useCallback(() => {
         dragStartRef.current = null;
         document.removeEventListener('mousemove', handleModalDragMove);
-        document.removeEventListener('mouseup', handleModalDragEnd);
-    };
+        document.removeEventListener('mouseup', onDragEndRef.current);
+    }, [handleModalDragMove]);
 
-    // start handler still uses useCallback, but does not depend on move/end
+    useEffect(() => {
+        onDragEndRef.current = handleModalDragEnd;
+    }, [handleModalDragEnd]);
+
+    // 3. Drag start handler
     const handleModalDragStart = useCallback((e) => {
         if (e.target.closest('input, textarea, button, select')) return;
         dragStartRef.current = {
@@ -1485,7 +1515,8 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
         };
         document.addEventListener('mousemove', handleModalDragMove);
         document.addEventListener('mouseup', handleModalDragEnd);
-    }, [modalPos]); // depends only on modalPos
+    }, [modalPos.x, modalPos.y, handleModalDragMove, handleModalDragEnd]);
+
 
     // ============================================================
     // 23. STYLES
@@ -1535,7 +1566,6 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
     // ============================================================
     const [isHydrated, setIsHydrated] = useState(false);
 
-    // Auto-load once
     useEffect(() => {
         const savedData = localStorage.getItem('axon_interlink_workspace');
         if (savedData) {
@@ -1558,7 +1588,6 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
         }
     }, [setNodes, setEdges, setCustomCodes, setExposedPorts, setTheme]);
 
-    // Throttled auto-save (save at most once per 500ms)
     const saveTimerRef = useRef(null);
     useEffect(() => {
         if (!isHydrated) return;
@@ -1579,21 +1608,14 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
     const onSaveCode = useCallback((targetNodeId, moduleName, updatedCode, quantity = 1) => {
         if (typeof recordHistory === 'function') recordHistory();
 
-        // 1. Core structural map tracking
         const targetBaseName = moduleName;
+        const { inputs: newParsedInputs, outputs: newParsedOutputs } = parseVerilogToPorts(updatedCode);
 
+        // 1. Core structural map tracking
         setCustomCodes(prev => {
-            const updatedCodes = {
-                ...prev,
-                [targetBaseName]: updatedCode
-            };
-
-            // If batch duplication is running, replicate the code under every indexed module variant name
+            const updatedCodes = { ...prev, [targetBaseName]: updatedCode };
             if (quantity > 1) {
-                // Re-index the original base slice to index _0
                 updatedCodes[`${targetBaseName}_0`] = updatedCode;
-
-                // Replicate code block values for all newly generated instance names
                 for (let i = 1; i < quantity; i++) {
                     updatedCodes[`${targetBaseName}_${i}`] = updatedCode;
                 }
@@ -1606,22 +1628,23 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
             const baseNode = nds.find(n => n.id === targetNodeId);
             if (!baseNode) return nds;
 
-            // Map updates to the original modifying node instance
             const updatedNodes = nds.map(node => {
-                if (node.id === targetNodeId) {
+                if (node.id === targetNodeId || node.data.moduleName === targetBaseName) {
                     return {
                         ...node,
                         data: {
                             ...node.data,
                             code: updatedCode,
-                            moduleName: quantity > 1 ? `${targetBaseName}_0` : targetBaseName
+                            // Synchronize structural ports seamlessly!
+                            inputs: newParsedInputs,
+                            outputs: newParsedOutputs,
+                            moduleName: quantity > 1 && node.id === targetNodeId ? `${targetBaseName}_0` : node.data.moduleName
                         }
                     };
                 }
                 return node;
             });
 
-            // If batch duplication is requested (Quantity > 1)
             if (quantity > 1) {
                 const batchClones = [];
                 for (let i = 1; i < quantity; i++) {
@@ -1636,7 +1659,9 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
                         data: {
                             ...baseNode.data,
                             code: updatedCode,
-                            moduleName: `${targetBaseName}_${i}` // Matches the explicit customCodes mapping key entries
+                            inputs: newParsedInputs, // Synchronize to clones
+                            outputs: newParsedOutputs, // Synchronize to clones
+                            moduleName: `${targetBaseName}_${i}`
                         }
                     });
                 }
@@ -1645,8 +1670,23 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
 
             return updatedNodes;
         });
-    }, [setCustomCodes, setNodes, recordHistory]);
 
+        setEdges(eds => {
+            return eds.filter(edge => {
+                if (edge.target === targetNodeId) {
+                    return newParsedInputs.some(p => p.name === edge.targetHandle);
+                }
+                if (edge.source === targetNodeId) {
+                    return newParsedOutputs.some(p => p.name === edge.sourceHandle);
+                }
+                return true;
+            });
+        });
+
+    }, [setCustomCodes, setNodes, setEdges, recordHistory]);
+
+
+    
 
     // ============================================================
     // 26. RENDER

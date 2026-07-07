@@ -44,12 +44,18 @@ const ContextualModal = ({
     const handleKeyDown = useCodeEditor(localCode, setLocalCode);
 
     // ============================
-    // State Sync & Early Returns
+    // State Sync & Early Returns 
     // ============================
-    if (activeModal && activeModal.type === 'node' && activeModal.id !== lastTargetId) {
+    // Track both the active node block identity AND changes to the generated Verilog source string
+    const [lastCode, setLastCode] = useState('');
+
+    if (activeModal && activeModal.type === 'node' && (activeModal.id !== lastTargetId || currentModuleCode !== lastCode)) {
         setLocalCode(currentModuleCode || '');
         setLastTargetId(activeModal.id);
-        setInstantiationQuantity(1);
+        setLastCode(currentModuleCode || '');
+        if (activeModal.id !== lastTargetId) {
+            setInstantiationQuantity(1);
+        }
     }
 
     if (!activeModal || !activeModal.type) return null;

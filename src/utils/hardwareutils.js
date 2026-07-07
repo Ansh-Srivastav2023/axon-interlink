@@ -81,3 +81,25 @@ export function validatePorts(inputs, outputs) {
     }
     return null;
 }
+
+
+/**
+ * Splits a width into individual single-bit port definitions
+ * e.g., name="data", msb=3, lsb=0 -> returns ['data[3]', 'data[2]', 'data[1]', 'data[0]']
+ */
+export const generateBitSlices = (name, msb, lsb) => {
+    const slices = [];
+    const high = Math.max(msb, lsb);
+    const low = Math.min(msb, lsb);
+    
+    for (let i = high; i >= low; i--) {
+        slices.push({
+            name: `out${high - i}`,
+            label: `${name}[${i}]`,
+            width: 1,
+            msb: i,
+            lsb: i
+        });
+    }
+    return slices;
+};

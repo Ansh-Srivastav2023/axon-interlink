@@ -28,7 +28,13 @@ const NodeModalContent = ({
     setInstantiationQuantity,
     localCode
 }) => {
+    const isDark = theme === 'dark';
     const isSplitterOrBundler = !!(node.data.isSplitter || node.data.isBundler);
+
+    // Neutral scrollbar tokens
+    const scrollbarThumb = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.2)';
+    const scrollbarThumbHover = isDark ? 'rgba(255, 255, 255, 0.25)' : 'rgba(0, 0, 0, 0.3)';
+    const scrollbarTrack = isDark ? 'rgba(0, 0, 0, 0.2)' : 'rgba(0, 0, 0, 0.05)';
 
     return (
         <>
@@ -39,16 +45,38 @@ const NodeModalContent = ({
                 theme={theme}
                 t={t}
             />
-            <div style={{
-                height: '320px',
-                overflowY: 'auto',
-                paddingRight: '4px',
-                scrollbarWidth: 'thin',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px',
-                scrollbarColor: theme === 'dark' ? '#333333 #050505' : '#cbd5e1 #f3f4f6'
-            }}>
+            <div 
+                className="node-modal-scroll"
+                style={{
+                    height: '320px',
+                    overflowY: 'auto',
+                    paddingRight: '8px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                }}
+            >
+                <style>{`
+                    .node-modal-scroll::-webkit-scrollbar {
+                        width: 8px;
+                    }
+                    .node-modal-scroll::-webkit-scrollbar-track {
+                        background: ${scrollbarTrack};
+                        border-radius: 4px;
+                    }
+                    .node-modal-scroll::-webkit-scrollbar-thumb {
+                        background: ${scrollbarThumb};
+                        border-radius: 4px;
+                        transition: background 0.15s ease;
+                    }
+                    .node-modal-scroll::-webkit-scrollbar-thumb:hover {
+                        background: ${scrollbarThumbHover};
+                    }
+                    .node-modal-scroll {
+                        scrollbar-width: thin;
+                        scrollbar-color: ${scrollbarThumb} ${scrollbarTrack};
+                    }
+                `}</style>
                 {isSplitterOrBundler ? (
                     <SplitterPanel
                         node={node}

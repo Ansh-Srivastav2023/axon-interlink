@@ -74,7 +74,7 @@ const Header = ({
 
             {/* Brand logo */}
             <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                <AppLogo size={isMobile ? 52 : 70} t={t} />
+                <AppLogo size={isMobile ? 60 : 700} t={t} />
             </div>
 
             {/* Main header actions */}
@@ -91,18 +91,6 @@ const Header = ({
                 <span style={s.badge}>{nodes.length}{isMobile ? 'B' : ' blocks'}</span>
                 <span style={s.badge}>{edges.length}{isMobile ? 'W' : ' wires'}</span>
 
-                {/* {warnings.length > 0 && (
-                    <span
-                        style={{
-                            ...s.badge,
-                            background: `linear-gradient(135deg, ${t.warnBg} 0%, ${t.warnBorder}40 100%)`,
-                            color: t.warn,
-                            border: `1px solid ${t.warnBorder}`,
-                        }}
-                    >
-                        ⚠ {warnings.length} {!isMobile && 'Alerts'}
-                    </span>
-                )} */}
 
                 {/* Undo / Redo (always visible) */}
                 <button

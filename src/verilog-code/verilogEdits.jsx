@@ -10,11 +10,11 @@ export const highlightVerilogCode = (rawCode, currentTheme) => {
 
     const styles = {
         keyword: isDark ? 'color: #3b82f6; font-weight: bold;' : 'color: #2563eb; font-weight: bold;',
-        type:    isDark ? 'color: #a855f7; font-weight: bold;' : 'color: #7c3aed; font-weight: bold;',
+        type: isDark ? 'color: #a855f7; font-weight: bold;' : 'color: #7c3aed; font-weight: bold;',
         literal: isDark ? 'color: #10b981;' : 'color: #16a34a;',
-        string:  isDark ? 'color: #f59e0b;' : 'color: #d97706;',
+        string: isDark ? 'color: #f59e0b;' : 'color: #d97706;',
         comment: isDark ? 'color: #64748b; font-style: italic;' : 'color: #94a3b8; font-style: italic;',
-        system:  isDark ? 'color: #f59e0b;' : 'color: #d97706;',
+        system: isDark ? 'color: #f59e0b;' : 'color: #d97706;',
         moduleName: isDark ? 'color: #60a5fa; font-weight: 600;' : 'color: #2563eb; font-weight: 600;', // optional distinct color
     };
 
@@ -100,4 +100,56 @@ export const highlightVerilogCode = (rawCode, currentTheme) => {
     });
 
     return escaped;
+};
+
+
+
+/**
+ * Parses a Verilog module declaration string and extracts ports.
+ * Handles: input wire [15:0] a, output logic clk, etc.
+ */
+export const parseVerilogToPorts = (verilogCode) => {
+    const inputs = [];
+    const outputs = [];
+
+    if (!verilogCode) return { inputs, outputs };
+
+    // Regex to capture everything inside the module port parentheses: module name (...);
+    const moduleRegex = /module\s+\w+\s*\(([\s\S]*?)\);/;
+    const match = verilogCode.match(moduleRegex);
+    if (!match) return { inputs, outputs };
+
+    const portBody = match[1];
+    // Split by commas, filtering out empty or commented lines
+    const portLines = portBody.split(',').map(line => line.trim()).filter(line => line && !line.startsWith('//'));
+
+    portLines.forEach(line => {
+        // Regex to parse: [direction] [type] [optional bus width] [port_name]
+        // Examples: "input wire [15:0] data_in", "output logic clk"
+        const portRegex = /(input|output)\s+(?:wire|reg|logic)?\s*(?:\[(\d+):(\d+)\])?\s*([a-zA-Z_][a-zA-Z0-9_]*)/;
+        const portMatch = line.match(portRegex);
+
+        if (portMatch) {
+            const direction = portMatch[1]; // "input" or "output"
+            const msb = portMatch[2] ? parseInt(portMatch[2], 10) : 0;
+            const lsb = portMatch[3] ? parseInt(portMatch[3], 10) : 0;
+            const name = portMatch[4];
+            const width = portMatch[2] ? (Math.abs(msb - lsb) + 1) : 1;
+
+            const portObject = {
+                name,
+                width,
+                msb,
+                lsb
+            };
+
+            if (direction === 'input') {
+                inputs.push(portObject);
+            } else if (direction === 'output') {
+                outputs.push(portObject);
+            }
+        }
+    });
+
+    return { inputs, outputs };
 };

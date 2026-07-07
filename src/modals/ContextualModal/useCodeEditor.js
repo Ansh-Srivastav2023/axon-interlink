@@ -1,6 +1,6 @@
 import { useCallback, useRef, useEffect } from 'react';
 
-// Verilog/SystemVerilog keywords and snippets (exported for parent)
+// ---------- Verilog/SystemVerilog keywords and snippets ----------
 export const KEYWORDS = [
     'module', 'endmodule', 'always', 'assign', 'if', 'else', 'case', 'endcase',
     'generate', 'endgenerate', 'begin', 'end', 'for', 'function', 'endfunction',
@@ -16,48 +16,44 @@ export const KEYWORDS = [
 ];
 
 export const SNIPPETS = {
-    module: {
-        template: `module ${''} (\n    ${''}\n);\n    \nendmodule`,
-        cursor: 7
-    },
-    always: {
-        template: `always @(*) begin\n    ${''}\nend`,
-        cursor: 13
-    },
-    if: {
-        template: `if (${''}) begin\n    \nend else begin\n    \nend`,
-        cursor: 4
-    },
-    case: {
-        template: `case (${''})\n    default: ;\nendcase`,
-        cursor: 6
-    },
-    generate: {
-        template: `generate\n    ${''}\nendgenerate`,
-        cursor: 8
-    },
-    for: {
-        template: `for (${''}) begin\n    \nend`,
-        cursor: 5
-    },
-    function: {
-        template: `function ${''};\n    \nendfunction`,
-        cursor: 9
-    },
-    task: {
-        template: `task ${''};\n    \nendtask`,
-        cursor: 5
-    },
-    fork: {
-        template: `fork\n    ${''}\njoin`,
-        cursor: 4
-    },
-    initial: {
-        template: `initial begin\n    ${''}\nend`,
-        cursor: 7
-    }
+    module: { template: `module \${1:name} (\n    \${2:ports}\n);\n    \nendmodule`, cursor: 7 },
+    always: { template: `always @(*) begin\n    \nend`, cursor: 13 },
+    if: { template: `if () begin\n    \nend else begin\n    \nend`, cursor: 4 },
+    case: { template: `case ()\n    default: ;\nendcase`, cursor: 6 },
+    for: { template: `for (int i=0; i<; i++) begin\n    \nend`, cursor: 16 }
 };
 
+// ---------- Auto-Formatter for Verilog ----------
+export const formatVerilog = (code) => {
+    const lines = code.split('\n');
+    let indentLevel = 0;
+    const tab = '    ';
+    const increaseRegex = /\b(module|begin|case|generate|function|task|class|package)\b(?![_a-zA-Z0-9])/;
+    const decreaseRegex = /\b(endmodule|end|endcase|endgenerate|endfunction|endtask|endclass|endpackage)\b(?![_a-zA-Z0-9])/;
+
+    return lines.map(line => {
+        let trimmed = line.trim();
+        if (!trimmed) return '';
+
+        // Lookahead for decrease to outdent the current line
+        if (decreaseRegex.test(trimmed)) {
+            indentLevel = Math.max(0, indentLevel - 1);
+        }
+
+        const formattedLine = tab.repeat(indentLevel) + trimmed;
+
+        // Lookahead for increase to indent the NEXT line
+        // We ensure we don't increase if a single line has both (e.g., `begin ... end`)
+        const hasInc = increaseRegex.test(trimmed);
+        const hasDec = decreaseRegex.test(trimmed);
+        if (hasInc && !hasDec) {
+            indentLevel++;
+        }
+        return formattedLine;
+    }).join('\n');
+};
+
+// ---------- The Hook ----------
 export const useCodeEditor = (
     localCode,
     setLocalCode,
@@ -66,14 +62,21 @@ export const useCodeEditor = (
     suggestionIndex,
     setSuggestionIndex,
     setShowSuggestions,
-    showSuggestions
+    showSuggestions,
+    toggleFindWidget,
+    toggleWordWrap
 ) => {
     const suggestionRef = useRef([]);
     useEffect(() => {
         suggestionRef.current = suggestions;
     }, [suggestions]);
 
-    // Helper to find token start (used for snippet insertion)
+    const getCurrentToken = (text, pos) => {
+        let i = pos - 1;
+        while (i >= 0 && /[a-zA-Z0-9_]/.test(text[i])) i--;
+        return text.substring(i + 1, pos);
+    };
+
     const findTokenStart = (text, pos) => {
         let i = pos - 1;
         while (i >= 0 && /[a-zA-Z_]/.test(text[i])) i--;
@@ -87,6 +90,24 @@ export const useCodeEditor = (
         return match ? match[1] : '';
     };
 
+    // EXPORTED: Suggestion Updater for onChange
+    const updateSuggestions = useCallback((text, pos) => {
+        const token = getCurrentToken(text, pos);
+        if (token && token.length >= 1) {
+            const matches = [...KEYWORDS, ...Object.keys(SNIPPETS)].filter(item =>
+                item.startsWith(token)
+            );
+            if (matches.length > 0) {
+                setSuggestions(matches);
+                setShowSuggestions(true);
+                setSuggestionIndex(0);
+                return;
+            }
+        }
+        setShowSuggestions(false);
+        setSuggestions([]);
+    }, [setSuggestions, setShowSuggestions, setSuggestionIndex]);
+
     const handleKeyDown = useCallback(
         (e) => {
             const textarea = e.currentTarget;
@@ -94,7 +115,6 @@ export const useCodeEditor = (
             const end = textarea.selectionEnd;
             const currentValue = localCode;
 
-            // Undo/redo stacks
             if (!textarea._undoStack) textarea._undoStack = [];
             if (!textarea._redoStack) textarea._redoStack = [];
 
@@ -106,23 +126,33 @@ export const useCodeEditor = (
                     textarea.selectionStart = newStart;
                     textarea.selectionEnd = newEnd !== undefined ? newEnd : newStart;
                 }, 0);
-                // Close suggestions after insertion
                 setShowSuggestions(false);
-                setSuggestions([]);
             };
 
-            // Helper to get line range
-            const getLineRange = (selStart, selEnd) => {
-                const textBeforeStart = currentValue.substring(0, selStart);
-                const lineStart = textBeforeStart.lastIndexOf('\n') + 1;
-                const lineEnd = currentValue.indexOf('\n', selEnd);
-                const actualEnd = lineEnd === -1 ? currentValue.length : lineEnd;
-                return { lineStart, lineEnd: actualEnd };
-            };
+            // --- IDE Shortcuts ---
+            // Format Document (Alt+Shift+F)
+            if (e.altKey && e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+                e.preventDefault();
+                const formatted = formatVerilog(currentValue);
+                updateWithHistory(currentValue, formatted, start, end);
+                return;
+            }
 
-            const getLineContent = (lineStart, lineEnd) => currentValue.substring(lineStart, lineEnd);
+            // Find Widget (Ctrl+F / Cmd+F)
+            if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+                e.preventDefault();
+                if (toggleFindWidget) toggleFindWidget(true);
+                return;
+            }
 
-            // ---------- Autocomplete handling ----------
+            // Word Wrap (Alt+Z)
+            if (e.altKey && (e.key === 'z' || e.key === 'Z')) {
+                e.preventDefault();
+                if (toggleWordWrap) toggleWordWrap();
+                return;
+            }
+
+            // --- Suggestion Navigation ---
             if (showSuggestions && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
                 e.preventDefault();
                 const maxIndex = suggestionRef.current.length - 1;
@@ -152,28 +182,13 @@ export const useCodeEditor = (
                         const before = currentValue.substring(0, tokenStart);
                         const after = currentValue.substring(start);
                         const newVal = before + indented + after;
-                        setLocalCode(newVal);
-                        const cursorPos = tokenStart + snippet.cursor + (lines.length > 1 ? indent.length : 0);
-                        setTimeout(() => {
-                            textarea.selectionStart = cursorPos;
-                            textarea.selectionEnd = cursorPos;
-                            textarea.focus();
-                        }, 0);
+                        updateWithHistory(currentValue, newVal, tokenStart + snippet.cursor);
                     } else {
                         const before = currentValue.substring(0, tokenStart);
                         const after = currentValue.substring(start);
                         const newVal = before + selected + after;
-                        setLocalCode(newVal);
-                        const cursorPos = tokenStart + selected.length;
-                        setTimeout(() => {
-                            textarea.selectionStart = cursorPos;
-                            textarea.selectionEnd = cursorPos;
-                            textarea.focus();
-                        }, 0);
+                        updateWithHistory(currentValue, newVal, tokenStart + selected.length);
                     }
-                    setShowSuggestions(false);
-                    setSuggestions([]);
-                    setSuggestionIndex(0);
                     return;
                 }
             }
@@ -181,235 +196,34 @@ export const useCodeEditor = (
             if (showSuggestions && e.key === 'Escape') {
                 e.preventDefault();
                 setShowSuggestions(false);
-                setSuggestions([]);
                 return;
             }
 
-            // ---------- UNDO / REDO ----------
-            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-                if (textarea._undoStack.length > 0) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const prev = textarea._undoStack.pop();
-                    textarea._redoStack.push({ value: currentValue, start, end });
-                    setLocalCode(prev.value);
-                    setTimeout(() => {
-                        textarea.selectionStart = prev.start;
-                        textarea.selectionEnd = prev.end;
-                    }, 0);
-                    return;
-                }
-            }
-            if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
-                if (textarea._redoStack.length > 0) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const next = textarea._redoStack.pop();
-                    textarea._undoStack.push({ value: currentValue, start, end });
-                    setLocalCode(next.value);
-                    setTimeout(() => {
-                        textarea.selectionStart = next.start;
-                        textarea.selectionEnd = next.end;
-                    }, 0);
-                    return;
-                }
-            }
+            // --- Standard Editor Operations ---
 
-            // ---------- DUPLICATE LINE (Ctrl+D) ----------
-            if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
-                e.preventDefault();
-                const { lineStart, lineEnd } = getLineRange(start, end);
-                const line = getLineContent(lineStart, lineEnd);
-                const newVal =
-                    currentValue.substring(0, lineEnd) +
-                    '\n' +
-                    line +
-                    currentValue.substring(lineEnd);
-                const newPos = lineEnd + 1 + line.length;
-                updateWithHistory(currentValue, newVal, newPos, newPos);
-                return;
-            }
-
-            // ---------- DELETE LINE (Ctrl+Shift+K) ----------
-            if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'k') {
-                e.preventDefault();
-                const { lineStart, lineEnd } = getLineRange(start, end);
-                const actualEnd = lineEnd + (lineEnd < currentValue.length ? 1 : 0);
-                let newVal =
-                    currentValue.substring(0, lineStart) + currentValue.substring(actualEnd);
-                if (lineStart > 0 && actualEnd >= currentValue.length) {
-                    newVal = newVal.substring(0, newVal.length - 1);
-                }
-                updateWithHistory(currentValue, newVal, lineStart, lineStart);
-                return;
-            }
-
-            // ---------- TOGGLE LINE COMMENT (Ctrl+/) ----------
-            if ((e.ctrlKey || e.metaKey) && e.key === '/') {
-                e.preventDefault();
-                const { lineStart, lineEnd } = getLineRange(start, end);
-                const line = getLineContent(lineStart, lineEnd);
-                const isCommented = line.trimStart().startsWith('//');
-                let newVal, newCursor;
-                if (isCommented) {
-                    const trimmed = line.replace(/^(\s*)\/\/ ?/, '$1');
-                    newVal = currentValue.substring(0, lineStart) + trimmed + currentValue.substring(lineEnd);
-                    newCursor = start - (line.length - trimmed.length);
-                } else {
-                    const indent = line.match(/^(\s*)/)[1];
-                    newVal =
-                        currentValue.substring(0, lineStart) +
-                        indent +
-                        '// ' +
-                        line.trimStart() +
-                        currentValue.substring(lineEnd);
-                    newCursor = start + (indent.length + 3);
-                }
-                updateWithHistory(currentValue, newVal, newCursor, newCursor);
-                return;
-            }
-
-            // ---------- TOGGLE BLOCK COMMENT (Ctrl+Shift+/) ----------
-            if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === '/') {
-                e.preventDefault();
-                if (start !== end) {
-                    const selected = currentValue.substring(start, end);
-                    const isBlockCommented = selected.startsWith('/*') && selected.endsWith('*/');
-                    let newVal, newStart, newEnd;
-                    if (isBlockCommented) {
-                        const inner = selected.substring(2, selected.length - 2).trim();
-                        newVal = currentValue.substring(0, start) + inner + currentValue.substring(end);
-                        newStart = start;
-                        newEnd = start + inner.length;
-                    } else {
-                        newVal =
-                            currentValue.substring(0, start) +
-                            '/* ' +
-                            selected +
-                            ' */' +
-                            currentValue.substring(end);
-                        newStart = start + 3;
-                        newEnd = newStart + selected.length;
-                    }
-                    updateWithHistory(currentValue, newVal, newStart, newEnd);
-                } else {
-                    const { lineStart, lineEnd } = getLineRange(start, end);
-                    const line = getLineContent(lineStart, lineEnd);
-                    const isCommented = line.trimStart().startsWith('/*') && line.trimEnd().endsWith('*/');
-                    let newVal, newCursor;
-                    if (isCommented) {
-                        const inner = line.substring(line.indexOf('/*') + 2, line.lastIndexOf('*/')).trim();
-                        newVal = currentValue.substring(0, lineStart) + inner + currentValue.substring(lineEnd);
-                        newCursor = start - (line.length - inner.length);
-                    } else {
-                        newVal =
-                            currentValue.substring(0, lineStart) +
-                            '/* ' +
-                            line.trim() +
-                            ' */' +
-                            currentValue.substring(lineEnd);
-                        newCursor = start + 3;
-                    }
-                    updateWithHistory(currentValue, newVal, newCursor, newCursor);
-                }
-                return;
-            }
-
-            // ---------- MOVE LINE UP (Alt+↑) ----------
-            if (e.altKey && e.key === 'ArrowUp' && !e.ctrlKey && !e.metaKey) {
-                e.preventDefault();
-                const { lineStart, lineEnd } = getLineRange(start, end);
-                if (lineStart === 0) return;
-                const prevLineEnd = currentValue.lastIndexOf('\n', lineStart - 1);
-                const prevLineStart = prevLineEnd === -1 ? 0 : prevLineEnd + 1;
-                const prevLine = getLineContent(prevLineStart, prevLineEnd === -1 ? lineStart - 1 : prevLineEnd);
-                const currentLine = getLineContent(lineStart, lineEnd);
-                const newVal =
-                    currentValue.substring(0, prevLineStart) +
-                    currentLine +
-                    (lineStart > 0 ? '\n' : '') +
-                    prevLine +
-                    currentValue.substring(lineEnd);
-                const newCursorStart = prevLineStart;
-                const newCursorEnd = prevLineStart + currentLine.length;
-                updateWithHistory(currentValue, newVal, newCursorStart, newCursorEnd);
-                return;
-            }
-
-            // ---------- MOVE LINE DOWN (Alt+↓) ----------
-            if (e.altKey && e.key === 'ArrowDown' && !e.ctrlKey && !e.metaKey) {
-                e.preventDefault();
-                const { lineStart, lineEnd } = getLineRange(start, end);
-                const nextLineStart = currentValue.indexOf('\n', lineEnd) + 1;
-                if (nextLineStart === 0) return;
-                const nextLineEnd = currentValue.indexOf('\n', nextLineStart);
-                const actualNextEnd = nextLineEnd === -1 ? currentValue.length : nextLineEnd;
-                const currentLine = getLineContent(lineStart, lineEnd);
-                const nextLine = getLineContent(nextLineStart, actualNextEnd);
-                const newVal =
-                    currentValue.substring(0, lineStart) +
-                    nextLine +
-                    (lineStart > 0 ? '\n' : '') +
-                    currentLine +
-                    currentValue.substring(actualNextEnd);
-                const newCursorStart = lineStart + nextLine.length + (lineStart > 0 ? 1 : 0);
-                const newCursorEnd = newCursorStart + currentLine.length;
-                updateWithHistory(currentValue, newVal, newCursorStart, newCursorEnd);
-                return;
-            }
-
-            // ---------- COPY LINE UP (Alt+Shift+↑) ----------
-            if (e.altKey && e.shiftKey && e.key === 'ArrowUp') {
-                e.preventDefault();
-                const { lineStart, lineEnd } = getLineRange(start, end);
-                const line = getLineContent(lineStart, lineEnd);
-                const newVal =
-                    currentValue.substring(0, lineStart) +
-                    line +
-                    '\n' +
-                    currentValue.substring(lineStart);
-                const newPos = lineStart + line.length + 1;
-                updateWithHistory(currentValue, newVal, newPos, newPos);
-                return;
-            }
-
-            // ---------- COPY LINE DOWN (Alt+Shift+↓) ----------
-            if (e.altKey && e.shiftKey && e.key === 'ArrowDown') {
-                e.preventDefault();
-                const { lineStart, lineEnd } = getLineRange(start, end);
-                const line = getLineContent(lineStart, lineEnd);
-                const newVal =
-                    currentValue.substring(0, lineEnd) +
-                    '\n' +
-                    line +
-                    currentValue.substring(lineEnd);
-                const newPos = lineEnd + 1 + line.length;
-                updateWithHistory(currentValue, newVal, newPos, newPos);
-                return;
-            }
-
-            // ---------- TAB / INDENT (multi-line support) ----------
+            // ---------- TAB / INDENT (Multi-line support) ----------
             if (e.key === 'Tab' && !e.shiftKey) {
                 e.preventDefault();
-                const tab = '  ';
+                const tab = '    '; // 4 spaces for indentation
+
                 if (start !== end && currentValue.substring(start, end).includes('\n')) {
+                    // Multi-line indent
                     const before = currentValue.substring(0, start);
                     const selected = currentValue.substring(start, end);
                     const after = currentValue.substring(end);
                     const lines = selected.split('\n');
                     const indented = lines.map((l) => (l === '' ? '' : tab + l)).join('\n');
                     const newVal = before + indented + after;
-                    const newStart = start;
-                    const newEnd = start + indented.length;
-                    updateWithHistory(currentValue, newVal, newStart, newEnd);
+                    updateWithHistory(currentValue, newVal, start, start + indented.length);
                 } else {
+                    // Single-line indent
                     const newVal = currentValue.substring(0, start) + tab + currentValue.substring(end);
                     updateWithHistory(currentValue, newVal, start + tab.length);
                 }
                 return;
             }
 
-            // ---------- SHIFT+TAB / OUTDENT ----------
+            // ---------- SHIFT+TAB / OUTDENT (Multi-line support) ----------
             if (e.key === 'Tab' && e.shiftKey) {
                 e.preventDefault();
                 if (start !== end && currentValue.substring(start, end).includes('\n')) {
@@ -417,21 +231,61 @@ export const useCodeEditor = (
                     const selected = currentValue.substring(start, end);
                     const after = currentValue.substring(end);
                     const lines = selected.split('\n');
-                    const outdented = lines.map((l) => (l.startsWith('  ') ? l.substring(2) : l)).join('\n');
+                    const outdented = lines.map((l) => (l.startsWith('    ') ? l.substring(4) : (l.startsWith('  ') ? l.substring(2) : l))).join('\n');
                     const newVal = before + outdented + after;
-                    const newStart = start;
-                    const newEnd = start + outdented.length;
-                    updateWithHistory(currentValue, newVal, newStart, newEnd);
+                    updateWithHistory(currentValue, newVal, start, start + outdented.length);
                 } else {
                     const textBefore = currentValue.substring(0, start);
                     const lineStart = textBefore.lastIndexOf('\n') + 1;
                     const lineText = currentValue.substring(lineStart);
-                    if (lineText.startsWith('  ')) {
-                        const newVal =
-                            currentValue.substring(0, lineStart) + lineText.substring(2);
+
+                    if (lineText.startsWith('    ')) {
+                        const newVal = currentValue.substring(0, lineStart) + lineText.substring(4);
+                        const newPos = Math.max(lineStart, start - 4);
+                        updateWithHistory(currentValue, newVal, newPos);
+                    } else if (lineText.startsWith('  ')) {
+                        const newVal = currentValue.substring(0, lineStart) + lineText.substring(2);
                         const newPos = Math.max(lineStart, start - 2);
-                        updateWithHistory(currentValue, newVal, newPos, newPos);
+                        updateWithHistory(currentValue, newVal, newPos);
                     }
+                }
+                return;
+            }
+
+            // ---------- SMART ENTER (Auto-Indentation) ----------
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const textBefore = currentValue.substring(0, start);
+                const lineStart = textBefore.lastIndexOf('\n') + 1;
+                const currentLine = textBefore.substring(lineStart);
+
+                // Grab the exact whitespace from the current line
+                const indentMatch = currentLine.match(/^([ \t]*)/);
+                let indent = indentMatch ? indentMatch[1] : '';
+                const clean = currentLine.trim().toLowerCase();
+
+                // Verilog block starters that require deeper indentation on the next line
+                const increaseIndent = ['(', 'begin', 'generate', 'module', 'function', 'task', 'case', 'fork', 'class', 'package'];
+
+                if (increaseIndent.some((kw) => clean.endsWith(kw))) {
+                    indent += '    '; // Add 4 spaces of inner indent
+                }
+
+                const insert = '\n' + indent;
+                const newVal = currentValue.substring(0, start) + insert + currentValue.substring(end);
+
+                // --- Optional: Smart Outdent for 'end' ---
+                // If you want to automatically close the bracket/end block, we can check the text after
+                const textAfter = currentValue.substring(end).trimStart().toLowerCase();
+                const outdentKeywords = ['end', 'endcase', 'endmodule', 'endfunction', 'endtask', 'endgenerate', 'join', ')'];
+
+                if (outdentKeywords.some((kw) => textAfter.startsWith(kw))) {
+                    const outdentedIndent = indent.substring(0, Math.max(0, indent.length - 4));
+                    const finalInsert = '\n' + outdentedIndent;
+                    const finalVal = currentValue.substring(0, start) + finalInsert + currentValue.substring(end);
+                    updateWithHistory(currentValue, finalVal, start + finalInsert.length);
+                } else {
+                    updateWithHistory(currentValue, newVal, start + insert.length);
                 }
                 return;
             }
@@ -441,15 +295,8 @@ export const useCodeEditor = (
             if (pairs[e.key]) {
                 e.preventDefault();
                 const selected = currentValue.substring(start, end);
-                const newVal =
-                    currentValue.substring(0, start) +
-                    e.key +
-                    selected +
-                    pairs[e.key] +
-                    currentValue.substring(end);
-                const newStart = start + 1;
-                const newEnd = newStart + selected.length;
-                updateWithHistory(currentValue, newVal, newStart, newEnd);
+                const newVal = currentValue.substring(0, start) + e.key + selected + pairs[e.key] + currentValue.substring(end);
+                updateWithHistory(currentValue, newVal, start + 1, start + 1 + selected.length);
                 return;
             }
 
@@ -457,46 +304,13 @@ export const useCodeEditor = (
             if ([')', '}', ']', '"', "'"].includes(e.key) && currentValue.charAt(end) === e.key) {
                 e.preventDefault();
                 const newVal = currentValue.substring(0, start) + currentValue.substring(end + 1);
-                updateWithHistory(currentValue, newVal, start + 1, start + 1);
+                updateWithHistory(currentValue, newVal, start + 1);
                 return;
             }
-
-            // ---------- SMART ENTER (Verilog indentation) ----------
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                const textBefore = currentValue.substring(0, start);
-                const lineStart = textBefore.lastIndexOf('\n') + 1;
-                const currentLine = textBefore.substring(lineStart);
-                const indentMatch = currentLine.match(/^([ \t]*)/);
-                let indent = indentMatch ? indentMatch[1] : '';
-                const clean = currentLine.trim().toLowerCase();
-
-                const increaseIndent = ['(', 'begin', 'generate', 'module', 'function', 'task', 'case', 'fork'];
-                if (increaseIndent.some((kw) => clean.endsWith(kw))) {
-                    indent += '  ';
-                }
-
-                const insert = '\n' + indent;
-                const newVal = currentValue.substring(0, start) + insert + currentValue.substring(end);
-                const newPos = start + insert.length;
-
-                const textAfter = currentValue.substring(end).trimStart().toLowerCase();
-                const outdentKeywords = ['end', 'endcase', 'endmodule', 'endfunction', 'endtask', 'endgenerate', 'join'];
-                if (outdentKeywords.some((kw) => textAfter.startsWith(kw))) {
-                    const outdentedIndent = indent.substring(0, Math.max(0, indent.length - 2));
-                    const finalInsert = '\n' + outdentedIndent;
-                    const finalVal = currentValue.substring(0, start) + finalInsert + currentValue.substring(end);
-                    updateWithHistory(currentValue, finalVal, start + finalInsert.length);
-                } else {
-                    updateWithHistory(currentValue, newVal, newPos);
-                }
-                return;
-            }
-
-            // ---------- Everything else: let browser handle normally ----------
         },
-        [localCode, setLocalCode, setSuggestions, setSuggestionIndex, setShowSuggestions, suggestionIndex, showSuggestions]
+        [localCode, setLocalCode, setSuggestionIndex, setShowSuggestions, suggestionIndex, showSuggestions, toggleFindWidget, toggleWordWrap]
     );
 
-    return handleKeyDown;
+    // Return an OBJECT to be destructured in the Modal
+    return { handleKeyDown, updateSuggestions };
 };

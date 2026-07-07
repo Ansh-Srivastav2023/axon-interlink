@@ -1,0 +1,199 @@
+// src/components/LeftPanel/DRC.jsx
+import { IconAlert, IconZap, IconCircleSlash, IconActivity } from '../../styles';
+
+const DRC = ({ nodes, edges, exposedPorts, theme, t, s, setSelectedNodeId, setSelectedEdgeId, setCenter, setNodes }) => {
+    const activeAlerts = [];
+    if (!nodes || !Array.isArray(nodes)) return null;
+
+    // Step 1: Check each node's ports
+    nodes.forEach((node) => {
+        if (!node || !node.data) return;
+        const isSplitterOrBundler = !!(node.data.isSplitter || node.data.isBundler);
+        if (isSplitterOrBundler) return;
+
+        const nodeTieoffs = node.data.tieoffs || {};
+        const nodeAutoRoute = node.data.autoRoute || {};
+        const nodeInputs = node.data.inputs || [];
+        const nodeOutputs = node.data.outputs || [];
+        const safeEdges = edges || [];
+
+        nodeInputs.forEach((port) => {
+            if (!port || !port.name) return;
+            const connected = safeEdges.filter(
+                (e) => e && e.target === node.id && e.targetHandle === port.name
+            );
+            const tieoff = nodeTieoffs[port.name];
+            const autoRoute = nodeAutoRoute[port.name];
+            const isExposed = exposedPorts && exposedPorts[`${node.id}__${port.name}`];
+
+            if (connected.length === 0 && !tieoff && !autoRoute && !isExposed) {
+                activeAlerts.push({
+                    node,
+                    type: 'error',
+                    icon: <IconAlert color="#ef4444" size={14} />,
+                    text: `Floating Input: ${node.data.instanceName || 'Block'}.${port.name} is undriven.`,
+                });
+            }
+            if (connected.length > 1) {
+                activeAlerts.push({
+                    node,
+                    type: 'error',
+                    icon: <IconZap color="#ef4444" size={14} />,
+                    text: `Bus Short: Multiple drivers connected to ${node.data.instanceName || 'Block'}.${port.name}.`,
+                });
+            }
+        });
+
+        nodeOutputs.forEach((port) => {
+            if (!port || !port.name) return;
+            const connected = safeEdges.filter(
+                (e) => e && e.source === node.id && e.sourceHandle === port.name
+            );
+            const isExposed = exposedPorts && exposedPorts[`${node.id}__${port.name}`];
+            if (connected.length === 0 && !isExposed) {
+                activeAlerts.push({
+                    node,
+                    type: 'warn',
+                    icon: <IconCircleSlash color="#9ca3af" size={14} />,
+                    text: `Unused Output: ${node.data.instanceName || 'Block'}.${port.name} drops into a dead end.`,
+                });
+            }
+        });
+    });
+
+    // Step 2: Width mismatches
+    const safeEdgesForMismatches = edges || [];
+    safeEdgesForMismatches.forEach((edge) => {
+        if (!edge || !edge.source || !edge.target) return;
+        const srcNode = nodes.find((n) => n && n.id === edge.source);
+        const tgtNode = nodes.find((n) => n && n.id === edge.target);
+        if (!srcNode || !tgtNode || !srcNode.data || !tgtNode.data) return;
+
+        const srcPort = (srcNode.data.outputs || []).find(
+            (p) => p && p.name === edge.sourceHandle
+        );
+        const tgtPort = (tgtNode.data.inputs || []).find(
+            (p) => p && p.name === edge.targetHandle
+        );
+        if (srcPort && tgtPort && srcPort.width !== tgtPort.width) {
+            activeAlerts.push({
+                node: tgtNode,
+                edgeId: edge.id,
+                type: 'mismatch',
+                icon: <IconActivity color="#f59e0b" size={14} />,
+                text: `Width Mismatch: ${srcNode.data.instanceName || 'u'}.${srcPort.name} (${srcPort.width}b) → ${tgtNode.data.instanceName || 'u'}.${tgtPort.name} (${tgtPort.width}b).`,
+            });
+        }
+    });
+
+    // Render
+    if (activeAlerts.length === 0) {
+        return (
+            <div
+                style={{
+                    ...s.emptyState,
+                    background: theme === 'dark' ? '#041e12' : '#f0fdf4',
+                    border: `1px dashed ${theme === 'dark' ? '#10b981' : '#bbf7d0'}`,
+                    color: theme === 'dark' ? '#34d399' : '#15803d',
+                    fontFamily: 'monospace'
+                }}
+            >
+                ✨ All clean! Netlist passes structural verification checks perfectly.
+            </div>
+        );
+    }
+
+    return (
+        <div
+            style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+                maxHeight: '320px',
+                overflowY: 'auto',
+                paddingRight: '4px',
+                scrollbarWidth: 'thin',
+                scrollbarColor:
+                    theme === 'dark' ? '#333333 #050505' : '#cbd5e1 #f3f4f6',
+            }}
+        >
+            {activeAlerts.map((alert, idx) => {
+                if (!alert || !alert.node) return null;
+                const targetNodeId = alert.node.id;
+
+                const handleAlertClick = () => {
+                    setSelectedNodeId(targetNodeId);
+                    setSelectedEdgeId(alert.edgeId || null);
+                    if (alert.node.position) {
+                        const posX = alert.node.position.x ?? 0;
+                        const posY = alert.node.position.y ?? 0;
+                        setCenter(posX + 90, posY + 60, { zoom: 1.2, duration: 400 });
+                        setNodes((nds) =>
+                            nds.map((n) =>
+                                n.id === targetNodeId
+                                    ? { ...n, data: { ...n.data, isDrcFlashing: true } }
+                                    : n
+                            )
+                        );
+                        setTimeout(() => {
+                            setNodes((nds) =>
+                                nds.map((n) =>
+                                    n.id === targetNodeId
+                                        ? { ...n, data: { ...n.data, isDrcFlashing: false } }
+                                        : n
+                                )
+                            );
+                        }, 1600);
+                    }
+                };
+
+                const borderColor = alert.type === 'error' ? '#ef4444' : '#f59e0b';
+                return (
+                    <div
+                        key={idx}
+                        onClick={handleAlertClick}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: '10px',
+                            padding: '10px',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            background: theme === 'dark' ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.6)',
+                            border: `1px solid ${theme === 'dark' ? '#222222' : '#e5e7eb'}`,
+                            transition: 'all 0.15s ease',
+                            backdropFilter: 'blur(4px)',
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.borderColor = borderColor;
+                            e.currentTarget.style.background =
+                                theme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.8)';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.borderColor =
+                                theme === 'dark' ? '#222222' : '#e5e7eb';
+                            e.currentTarget.style.background =
+                                theme === 'dark' ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.6)';
+                        }}
+                    >
+                        <div style={{ marginTop: '2px', flexShrink: 0 }}>
+                            {alert.icon}
+                        </div>
+                        <div
+                            style={{
+                                fontSize: '11px',
+                                fontFamily: 'monospace',
+                                lineHeight: '1.4',
+                                color: alert.type === 'error' ? '#ef4444' : t.text,
+                            }}
+                        >
+                            {alert.text}
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
+export default DRC;

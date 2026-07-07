@@ -1,6 +1,6 @@
 export {default as ResizeHandle} from './ResizeHandle'
 export {default as SmartEdge} from './SmartEdge'
-export {default as LeftPanel} from './LeftPanel'
+export {default as LeftPanel} from './LeftPanel/LeftPanel'
 export {default as RightPanel} from './RightPanel'
 export {default as Canvas} from './Canvas'
 export { default as TopSymbolView } from './TopSymbolView'
