@@ -11,7 +11,7 @@ const SaveModal = ({ theme, setShowSaveModal, setProposedFileName, proposedFileN
         }}>
             <div
                 style={{
-                    border: "3px solid transparent",
+                    border: `1px solid ${t.borderStrong || t.border}`,
                     borderRadius: "12px",
                     padding: "20px",
                     maxWidth: "400px",
@@ -20,10 +20,7 @@ const SaveModal = ({ theme, setShowSaveModal, setProposedFileName, proposedFileN
                     color: theme === "dark" ? "#ffffff" : "#111827",
                     fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
 
-                    // Gradient border fix
-                    backgroundImage: `linear-gradient(${t.bgSecondary}, ${t.bgSecondary}), linear-gradient(90deg, #c1067d, #4800ff)`,
-                    backgroundOrigin: "border-box",
-                    backgroundClip: "padding-box, border-box",
+                    background: t.bgSecondary,
                 }}
             >
 
@@ -31,7 +28,7 @@ const SaveModal = ({ theme, setShowSaveModal, setProposedFileName, proposedFileN
                     <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <IconSave size={16} /> Save Architecture Workspace
                     </h3>
-                    <button onClick={() => setShowSaveModal(false)} style={{ background: 'transparent', border: 'none', color: t.textMuted, cursor: 'pointer' }}><IconX size={16} /></button>
+                    <button onClick={() => setShowSaveModal(false)} style={{ ...s.iconBtn, width: '30px', height: '30px', minHeight: '30px', background: 'transparent', borderColor: 'transparent', color: t.textMuted }}><IconX size={16} /></button>
                 </div>
                 <p style={{ fontSize: '12px', color: t.textSecondary, margin: '0 0 12px 0', lineHeight: '1.5' }}>
                     Your hardware blocks and wiring routes will be archived into a portable design payload config file.
@@ -44,8 +41,8 @@ const SaveModal = ({ theme, setShowSaveModal, setProposedFileName, proposedFileN
                     </div>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                    <button onClick={() => setShowSaveModal(false)} style={{ ...s.smallBtn, background: theme === 'dark' ? '#111111' : '#f1f5f9', color: t.text, border: `1px solid ${t.border}` }}>Cancel</button>
-                    <button onClick={() => executeActualDownload(proposedFileName)} style={{ ...s.smallBtn, background: t.primary, color: '#ffffff', border: 'none', fontWeight: 600, padding: '6px 16px', boxShadow: '0 2px 4px rgba(37,99,235,0.2)' }}>Confirm & Save</button>
+                    <button onClick={() => setShowSaveModal(false)} style={s.smallBtn}>Cancel</button>
+                    <button onClick={() => executeActualDownload(proposedFileName)} style={{ ...s.primaryBtn, marginTop: 0, padding: '7px 14px' }}>Confirm & Save</button>
                 </div>
             </div>
         </div>

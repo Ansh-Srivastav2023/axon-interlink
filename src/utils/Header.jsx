@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { AppLogo } from "./Logo";
 import { FaMoon, FaSun } from "react-icons/fa";
-import { IconArrowBackUp, IconArrowForwardUp, IconHierarchy2, IconDotsVertical } from "@tabler/icons-react";
+import { IconArrowBackUp, IconArrowForwardUp, IconHierarchy2, IconDotsVertical, IconPalette, IconPlayerPlay } from "@tabler/icons-react";
 import { IconSave, IconFolder, IconTrash } from '../styles';
 
 const HELP_ICON = (
@@ -12,18 +12,17 @@ const HELP_ICON = (
     </svg>
 );
 
-// Helper for glassy hover (reused on dropdown items)
 const glassHover = (t, glowColor = null) => ({
     onMouseEnter: (e) => {
-        e.currentTarget.style.transform = 'translateY(-2px) scale(1.03)';
-        e.currentTarget.style.boxShadow = glowColor
-            ? `0 8px 24px ${glowColor}40, inset 0 1px 0 rgba(255,255,255,0.1)`
-            : `0 8px 24px ${t.shadow}, inset 0 1px 0 rgba(255,255,255,0.1)`;
+        if (e.currentTarget.disabled) return;
+        e.currentTarget.style.transform = 'translateY(-1px)';
+        e.currentTarget.style.background = glowColor ? `${glowColor}18` : t.bgTertiary;
         e.currentTarget.style.borderColor = glowColor || t.borderStrong;
+        e.currentTarget.style.color = glowColor || t.textHeading;
     },
     onMouseLeave: (e) => {
-        e.currentTarget.style.transform = 'translateY(0) scale(1)';
-        e.currentTarget.style.boxShadow = `inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 3px ${t.shadow}`;
+        e.currentTarget.style.transform = 'translateY(0)';
+        e.currentTarget.style.boxShadow = 'none';
         e.currentTarget.style.borderColor = t.border;
     },
 });
@@ -34,6 +33,8 @@ const Header = ({
     toolbarBtn, handleSaveWorkspace, handleLoadWorkspace, fileInputRef,
     setShowClearModal, setShowHelp, setTheme, helpColors,
     arrangeTopologicalLayout,
+    colorWiresByModule, setColorWiresByModule,
+    animateWireFlow, setAnimateWireFlow,
 }) => {
 
     // const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
@@ -63,10 +64,12 @@ const Header = ({
         border: 'none',
         color: t.text,
         fontSize: '13px',
+        fontWeight: 500,
         textAlign: 'left',
         cursor: 'pointer',
         fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
-        transition: 'background 0.15s ease'
+        transition: 'background 0.15s ease, color 0.15s ease',
+        borderRadius: '7px',
     };
 
     return (
@@ -118,7 +121,7 @@ const Header = ({
                     <>
                         {/* Badges */}
 
-                        <button onClick={handleSaveWorkspace} style={{ ...toolbarBtn, background: t.primary, color: '#fff', border: 'none' }} {...glassHover(t)}>
+                        <button onClick={handleSaveWorkspace} style={{ ...toolbarBtn, background: t.primary, color: '#fff', borderColor: t.primary }} {...glassHover(t)}>
                             <IconSave size={16} /> Save Work
                         </button>
                         <button onClick={() => fileInputRef.current?.click()} style={toolbarBtn} {...glassHover(t)}>
@@ -132,6 +135,32 @@ const Header = ({
                         </button>
                         <button onClick={arrangeTopologicalLayout} style={{ ...toolbarBtn, color: theme === 'dark' ? '#8b5cf6' : '#7c3aed', borderColor: theme === 'dark' ? '#8b5cf660' : '#7c3aed60' }} {...glassHover(t)}>
                             <IconHierarchy2 size={16} /> Auto Layout
+                        </button>
+                        <button
+                            onClick={() => setColorWiresByModule((previous) => !previous)}
+                            style={{
+                                ...toolbarBtn,
+                                color: colorWiresByModule ? '#34d399' : toolbarBtn.color,
+                                borderColor: colorWiresByModule ? 'rgba(52,211,153,0.55)' : toolbarBtn.borderColor,
+                                background: colorWiresByModule ? 'rgba(52,211,153,0.12)' : toolbarBtn.background,
+                            }}
+                            title="Toggle wire colors by source module"
+                            {...glassHover(t, colorWiresByModule ? '#34d399' : null)}
+                        >
+                            <IconPalette size={16} /> Module Wires
+                        </button>
+                        <button
+                            onClick={() => setAnimateWireFlow((previous) => !previous)}
+                            style={{
+                                ...toolbarBtn,
+                                color: animateWireFlow ? '#60a5fa' : toolbarBtn.color,
+                                borderColor: animateWireFlow ? 'rgba(96,165,250,0.55)' : toolbarBtn.borderColor,
+                                background: animateWireFlow ? 'rgba(96,165,250,0.12)' : toolbarBtn.background,
+                            }}
+                            title="Toggle output-to-input wire animation"
+                            {...glassHover(t, animateWireFlow ? '#60a5fa' : null)}
+                        >
+                            <IconPlayerPlay size={16} /> Wire Flow
                         </button>
                         <button onClick={() => setTheme((p) => (p === 'light' ? 'dark' : 'light'))} style={toolbarBtn} {...glassHover(t)}>
                             {theme === 'light' ? <FaMoon size={15} /> : <FaSun size={15} />}
@@ -148,7 +177,7 @@ const Header = ({
                             style={{
                                 ...toolbarBtn,
                                 padding: '6px 10px',
-                                background: menuOpen ? t.bgTertiary : 'transparent',
+                                background: menuOpen ? t.bgTertiary : toolbarBtn.background,
                                 borderColor: menuOpen ? t.borderStrong : t.border,
                                 display: 'flex',
                                 alignItems: 'center',
@@ -167,13 +196,14 @@ const Header = ({
                                     top: '42px',
                                     backgroundColor: t.bgSecondary === '#050505' ? '#111111' : '#ffffff',
                                     border: `1px solid ${t.borderStrong || '#222'}`,
-                                    borderRadius: '8px',
-                                    boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+                                    borderRadius: '10px',
+                                    boxShadow: theme === 'dark' ? '0 12px 28px rgba(0,0,0,0.36)' : '0 12px 28px rgba(15,23,42,0.12)',
                                     zIndex: 2000,
                                     minWidth: '160px',
                                     overflow: 'hidden',
                                     display: 'flex',
                                     flexDirection: 'column',
+                                    padding: '6px',
                                 }}
                             >
                                 <button
@@ -213,6 +243,34 @@ const Header = ({
                                 </button>
 
                                 <div style={{ height: '1px', backgroundColor: t.border, margin: '4px 0' }} />
+
+                                <button
+                                    style={{
+                                        ...dropItemStyle,
+                                        color: colorWiresByModule ? '#34d399' : t.text,
+                                        backgroundColor: colorWiresByModule ? (theme === 'dark' ? 'rgba(52,211,153,0.12)' : 'rgba(22,163,74,0.10)') : 'transparent',
+                                    }}
+                                    onClick={() => { setColorWiresByModule((previous) => !previous); setMenuOpen(false); }}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = t.bgTertiary}
+                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = colorWiresByModule ? (theme === 'dark' ? 'rgba(52,211,153,0.12)' : 'rgba(22,163,74,0.10)') : 'transparent'}
+                                >
+                                    <IconPalette size={16} style={{ color: colorWiresByModule ? '#34d399' : t.textSecondary }} />
+                                    {colorWiresByModule ? 'Normal Wire Colors' : 'Module Wire Colors'}
+                                </button>
+
+                                <button
+                                    style={{
+                                        ...dropItemStyle,
+                                        color: animateWireFlow ? '#60a5fa' : t.text,
+                                        backgroundColor: animateWireFlow ? (theme === 'dark' ? 'rgba(96,165,250,0.12)' : 'rgba(37,99,235,0.10)') : 'transparent',
+                                    }}
+                                    onClick={() => { setAnimateWireFlow((previous) => !previous); setMenuOpen(false); }}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = t.bgTertiary}
+                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = animateWireFlow ? (theme === 'dark' ? 'rgba(96,165,250,0.12)' : 'rgba(37,99,235,0.10)') : 'transparent'}
+                                >
+                                    <IconPlayerPlay size={16} style={{ color: animateWireFlow ? '#60a5fa' : t.textSecondary }} />
+                                    {animateWireFlow ? 'Stop Wire Flow' : 'Animate Wire Flow'}
+                                </button>
 
                                 <button
                                     style={dropItemStyle}

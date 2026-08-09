@@ -41,56 +41,6 @@ const EdgeModalContent = ({
         outline: 'none',
     };
 
-    const glassButton = (isDanger = false) => ({
-        position: 'relative',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '6px',
-        padding: '8px 14px',
-        fontSize: '13px',
-        fontWeight: 500,
-        letterSpacing: '-0.01em',
-        borderRadius: '8px',
-        border: `1px solid ${isDanger ? tokens.dangerBorder : tokens.border}`,
-        background: isDanger 
-            ? tokens.dangerBg
-            : tokens.bg,
-        backdropFilter: 'blur(16px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(16px) saturate(180%)',
-        color: isDanger ? tokens.danger : tokens.text,
-        cursor: 'pointer',
-        transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
-        outline: 'none',
-        userSelect: 'none',
-        boxShadow: isDark 
-            ? 'inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.3)'
-            : 'inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 2px rgba(0, 0, 0, 0.04)',
-    });
-
-    const buttonHover = (isDanger = false) => ({
-        onMouseEnter: (e) => {
-            e.currentTarget.style.background = isDanger 
-                ? (isDark ? 'rgba(239, 68, 68, 0.18)' : 'rgba(239, 68, 68, 0.12)')
-                : tokens.bgHover;
-            e.currentTarget.style.borderColor = isDanger 
-                ? (isDark ? 'rgba(239, 68, 68, 0.4)' : 'rgba(239, 68, 68, 0.35)')
-                : tokens.borderHover;
-            e.currentTarget.style.transform = 'translateY(-1px)';
-        },
-        onMouseLeave: (e) => {
-            e.currentTarget.style.background = isDanger ? tokens.dangerBg : tokens.bg;
-            e.currentTarget.style.borderColor = isDanger ? tokens.dangerBorder : tokens.border;
-            e.currentTarget.style.transform = 'translateY(0)';
-        },
-        onMouseDown: (e) => {
-            e.currentTarget.style.transform = 'translateY(0) scale(0.98)';
-        },
-        onMouseUp: (e) => {
-            e.currentTarget.style.transform = 'translateY(-1px)';
-        },
-    });
-
     return (
         <>
             <ModalHeader
@@ -117,7 +67,7 @@ const EdgeModalContent = ({
                                     recordHistory();
                                     setEdges(eds => eds.map(ed =>
                                         ed.id === targetId
-                                            ? { ...ed, data: { ...ed.data, bitWidth: val } }
+                                            ? { ...ed, data: { ...ed.data, bitWidth: val, manualBitWidth: true } }
                                             : ed
                                     ));
                                 }
@@ -214,15 +164,13 @@ const EdgeModalContent = ({
                         closeModal();
                         setGlowingNet(null);
                     }}
-                    style={glassButton(true)}
-                    {...buttonHover(true)}
+                    style={s.softDangerBtn || s.dangerBtn}
                 >
                     Purge Route
                 </button>
                 <button 
                     onClick={closeModal} 
-                    style={glassButton(false)}
-                    {...buttonHover(false)}
+                    style={{ ...s.primaryBtn, marginTop: 0 }}
                 >
                     Confirm
                 </button>

@@ -37,10 +37,13 @@ const ErrorModal = ({ errorModal, theme, setErrorModal, t, s }) => {
             <button
                 onClick={closeModal}
                 style={{
+                    ...s.iconBtn,
+                    width: '30px',
+                    height: '30px',
+                    minHeight: '30px',
                     background: 'transparent',
-                    border: 'none',
+                    borderColor: 'transparent',
                     color: t.textMuted,
-                    cursor: 'pointer'
                 }}
             >
                 <IconX size={16} />
@@ -77,13 +80,9 @@ const ErrorModal = ({ errorModal, theme, setErrorModal, t, s }) => {
             <button
                 onClick={closeModal}
                 style={{
-                    ...s.smallBtn,
-                    background: t.primary,
-                    color: '#fff',
-                    border: 'none',
-                    fontWeight: 600,
-                    padding: '6px 20px',
-                    cursor: 'pointer'
+                    ...s.primaryBtn,
+                    marginTop: 0,
+                    padding: '7px 18px',
                 }}
             >
                 Got it

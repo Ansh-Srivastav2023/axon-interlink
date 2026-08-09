@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { createWorkspacePayload, workspacePayloadToFlatState } from '../utils/projectModel';
 
 export default function useFileOperations({
     nodes,
@@ -6,11 +7,13 @@ export default function useFileOperations({
     customCodes,
     exposedPorts,
     theme,
+    projectModel,
     recordHistory,
     setNodes,
     setEdges,
     setCustomCodes,
     setExposedPorts,
+    setProjectModel,
     setSelectedNodeId,
     setSelectedEdgeId,
     setGlowingNet,
@@ -18,11 +21,20 @@ export default function useFileOperations({
     setShowSaveModal,
     setShowClearModal,
 }) {
-    // ─── DOWNLOAD / SAVE ──────────────────────────────────────────
     const executeActualDownload = useCallback((fileNameString) => {
         const cleanFileName = fileNameString.trim() || `rtl_schematic_backup_${Date.now().toString().slice(-5)}`;
         const finalDownloadName = cleanFileName.endsWith('.json') ? cleanFileName : `${cleanFileName}.json`;
-        const dataToSave = { version: '1.0.0', nodes, edges, customCodes, exposedPorts, theme };
+        const dataToSave = createWorkspacePayload({
+            nodes,
+            edges,
+            customCodes,
+            exposedPorts,
+            theme,
+            previousProject: projectModel,
+        });
+
+        setProjectModel(dataToSave.project);
+
         const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(dataToSave, null, 2))}`;
         const downloadAnchor = document.createElement('a');
         downloadAnchor.setAttribute('href', jsonString);
@@ -31,23 +43,26 @@ export default function useFileOperations({
         downloadAnchor.click();
         downloadAnchor.remove();
         setShowSaveModal(false);
-    }, [nodes, edges, customCodes, exposedPorts, theme, setShowSaveModal]);
+    }, [nodes, edges, customCodes, exposedPorts, theme, projectModel, setProjectModel, setShowSaveModal]);
 
-    // ─── LOAD FILE ────────────────────────────────────────────────
     const handleLoadWorkspace = useCallback((event) => {
         const file = event.target.files?.[0];
         if (!file) return;
+
         const reader = new FileReader();
         reader.onload = (e) => {
             try {
                 const parsedWorkspace = JSON.parse(e.target?.result);
-                if (parsedWorkspace.nodes && parsedWorkspace.edges) {
+                const migratedWorkspace = workspacePayloadToFlatState(parsedWorkspace);
+
+                if (Array.isArray(migratedWorkspace.nodes) && Array.isArray(migratedWorkspace.edges)) {
                     recordHistory();
-                    setNodes(parsedWorkspace.nodes);
-                    setEdges(parsedWorkspace.edges);
-                    setCustomCodes(parsedWorkspace.customCodes || {});
-                    setExposedPorts(parsedWorkspace.exposedPorts || {});
-                    if (parsedWorkspace.theme) setTheme(parsedWorkspace.theme);
+                    setNodes(migratedWorkspace.nodes);
+                    setEdges(migratedWorkspace.edges);
+                    setCustomCodes(migratedWorkspace.customCodes || {});
+                    setExposedPorts(migratedWorkspace.exposedPorts || {});
+                    setProjectModel(migratedWorkspace.project);
+                    if (migratedWorkspace.theme) setTheme(migratedWorkspace.theme);
                     setSelectedNodeId(null);
                     setSelectedEdgeId(null);
                     setGlowingNet(null);
@@ -58,6 +73,7 @@ export default function useFileOperations({
                 alert('Failed parsing structural graph workspace architecture config file payload.');
             }
         };
+
         reader.readAsText(file);
         event.target.value = '';
     }, [
@@ -66,18 +82,20 @@ export default function useFileOperations({
         setEdges,
         setCustomCodes,
         setExposedPorts,
+        setProjectModel,
         setTheme,
         setSelectedNodeId,
         setSelectedEdgeId,
         setGlowingNet,
     ]);
 
-    // ─── CLEAR ALL ────────────────────────────────────────────────
     const handleClearAll = useCallback(() => {
         recordHistory();
         setNodes([]);
         setEdges([]);
+        setCustomCodes({});
         setExposedPorts({});
+        setProjectModel(null);
         setSelectedNodeId(null);
         setSelectedEdgeId(null);
         setGlowingNet(null);
@@ -87,7 +105,9 @@ export default function useFileOperations({
         recordHistory,
         setNodes,
         setEdges,
+        setCustomCodes,
         setExposedPorts,
+        setProjectModel,
         setSelectedNodeId,
         setSelectedEdgeId,
         setGlowingNet,

@@ -1,121 +1,51 @@
-import { useState, useRef, useEffect } from "react";
-import { IconInfo, IconX } from "./icons";
+import { IconSettings } from "./icons";
 
-export const InfoIcon = ({ id, data, t, setNodes }) => {
-    const [showInfo, setShowInfo] = useState(false);
-    const toggleInfo = (e) => {
-        e.stopPropagation();
-        setShowInfo(!showInfo);
+export const InfoIcon = ({ id, data, t }) => {
+    const openConfig = (event) => {
+        event.stopPropagation();
+        window.dispatchEvent(new CustomEvent('axon:open-node-config', {
+            detail: {
+                nodeId: id,
+                clientX: event.clientX,
+                clientY: event.clientY,
+            },
+        }));
     };
 
-    const lastTriggerRef = useRef(data._closeInfoTrigger);
-
-    useEffect(() => {
-        if (
-            data._closeInfoTrigger !== lastTriggerRef.current &&
-            showInfo
-        ) {
-            lastTriggerRef.current = data._closeInfoTrigger;
-            setShowInfo(false);
-        } else {
-            lastTriggerRef.current = data._closeInfoTrigger;
-        }
-    }, [data._closeInfoTrigger, showInfo]);
-
-    const updateDesc = (e) => {
-        const val = e.target.value;
-        setNodes(nds =>
-            nds.map(n =>
-                n.id === id
-                    ? { ...n, data: { ...n.data, description: val } }
-                    : n
-            )
-        );
-    };
-
-    const defaultDesc = `Inputs:\n${(data.inputs || [])
-        .map(p => `  ${p.name}[${p.width - 1 === 0 ? 0 : p.width - 1}:0]`)
-        .join('\n')}\n\nOutputs:\n${(data.outputs || [])
-            .map(p => `  ${p.name}[${p.width - 1 === 0 ? 0 : p.width - 1}:0]`)
-            .join('\n')}\n\nRole:\n  Performs module logic.`;
-    const currentDesc = data.description !== undefined ? data.description : defaultDesc;
+    const isDark = data?.theme === 'dark';
 
     return (
         <div style={{ position: 'absolute', top: -10, right: -10, zIndex: 20 }}>
             <button
-                onClick={toggleInfo}
+                onClick={openConfig}
                 className="nodrag nopan"
-                title="Module Description"
+                title="Configure block"
+                aria-label="Configure block"
                 style={{
-                    background: t.bgSecondary,
-                    border: `1px solid ${data.theme === 'dark' ? '#727171' : '#000000'}`,
-                    borderRadius: '50%',
-                    width: 24,
-                    height: 24,
+                    background: isDark ? 'rgba(15,23,42,0.96)' : 'rgba(255,255,255,0.96)',
+                    border: `1px solid ${isDark ? 'rgba(96,165,250,0.45)' : 'rgba(37,99,235,0.35)'}`,
+                    borderRadius: '9px',
+                    width: 28,
+                    height: 28,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     cursor: 'pointer',
-                    color: t.primary,
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                    color: t.primary || '#3b82f6',
+                    boxShadow: isDark ? '0 8px 20px rgba(0,0,0,0.35)' : '0 8px 20px rgba(15,23,42,0.12)',
+                    transition: 'background 0.15s ease, border-color 0.15s ease, transform 0.12s ease',
+                }}
+                onMouseEnter={(event) => {
+                    event.currentTarget.style.transform = 'translateY(-1px)';
+                    event.currentTarget.style.borderColor = t.primary || '#3b82f6';
+                }}
+                onMouseLeave={(event) => {
+                    event.currentTarget.style.transform = 'translateY(0)';
+                    event.currentTarget.style.borderColor = isDark ? 'rgba(96,165,250,0.45)' : 'rgba(37,99,235,0.35)';
                 }}
             >
-                <IconInfo size={14} />
+                <IconSettings size={15} />
             </button>
-            {showInfo && (
-                <div
-                    className="nodrag nopan"
-                    style={{
-                        position: 'absolute',
-                        top: 28,
-                        right: 0,
-                        width: 220,
-                        background: data.theme === 'dark' ? '#0f4559' : '#826bbc',
-                        borderRadius: 6,
-                        padding: 8,
-                        boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-                        zIndex: 30
-                    }}
-                >
-                    <div
-                        style={{
-                            fontSize: 11,
-                            fontFamily: 'monospace',
-                            fontWeight: 600,
-                            marginBottom: 6,
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            color: '#fff'
-                        }}
-                    >
-                        Add Module Description
-                        <div
-                            onClick={toggleInfo}
-                            style={{ cursor: 'pointer', padding: '2px', display: 'flex' }}
-                        >
-                            <IconX size={12} />
-                        </div>
-                    </div>
-                    <textarea
-                        value={currentDesc}
-                        onChange={updateDesc}
-                        style={{
-                            width: '100%',
-                            height: 120,
-                            background: t.bgSecondary,
-                            color: t.text,
-                            border: `1px solid ${t.border}`,
-                            borderRadius: 4,
-                            fontSize: 11,
-                            padding: 6,
-                            resize: 'none',
-                            fontFamily: 'monospace',
-                            boxSizing: 'border-box'
-                        }}
-                    />
-                </div>
-            )}
         </div>
     );
 };

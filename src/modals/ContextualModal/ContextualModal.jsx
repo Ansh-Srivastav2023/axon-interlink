@@ -1,8 +1,5 @@
-import { useState } from 'react';
-import { useCodeEditor } from './useCodeEditor.js';
 import NodeModalContent from './NodeModalContent';
 import EdgeModalContent from './EdgeModalContent';
-import FullCodeModal from './FullCodeModal';
 
 // ============================
 // ContextualModal Component
@@ -27,37 +24,11 @@ const ContextualModal = ({
     recordHistory,
     setNodes,
     setEdges,
+    setExposedPorts,
     setSelectedNodeId,
     setGlowingNet,
-    highlightVerilogCode,
     onSaveCode
 }) => {
-    // ============================
-    // ALL REACT HOOKS MUST BE AT THE TOP
-    // ============================
-    const [fullCodeModalOpen, setFullCodeModalOpen] = useState(false);
-    const [localCode, setLocalCode] = useState('');
-    const [lastTargetId, setLastTargetId] = useState(null);
-    const [instantiationQuantity, setInstantiationQuantity] = useState(1);
-
-    // Moved above the early return to fix the react-hooks/rules-of-hooks lint error
-    const handleKeyDown = useCodeEditor(localCode, setLocalCode);
-
-    // ============================
-    // State Sync & Early Returns 
-    // ============================
-    // Track both the active node block identity AND changes to the generated Verilog source string
-    const [lastCode, setLastCode] = useState('');
-
-    if (activeModal && activeModal.type === 'node' && (activeModal.id !== lastTargetId || currentModuleCode !== lastCode)) {
-        setLocalCode(currentModuleCode || '');
-        setLastTargetId(activeModal.id);
-        setLastCode(currentModuleCode || '');
-        if (activeModal.id !== lastTargetId) {
-            setInstantiationQuantity(1);
-        }
-    }
-
     if (!activeModal || !activeModal.type) return null;
 
     const isNode = activeModal.type === 'node';
@@ -66,82 +37,69 @@ const ContextualModal = ({
     // ---------- Helpers ----------
     const closeModal = () => setActiveModal({ type: null, id: null });
 
+    const isDark = theme === 'dark';
+
     // ---------- Shared modal style ----------
     const modalStyle = {
         position: 'fixed',
         top: `${modalPos.y}px`,
         left: `${modalPos.x}px`,
         zIndex: 99999,
-        background: t.bgSecondary,
+        background: isDark ? 'rgba(10,15,28,0.96)' : 'rgba(255,255,255,0.98)',
         color: t.textHeading,
         cursor: 'grab',
-        padding: '20px',
-        borderRadius: '12px',
+        padding: 0,
+        borderRadius: '16px',
         display: 'flex',
         flexDirection: 'column',
-        maxHeight: '520px'
+        maxHeight: 'min(680px, calc(100vh - 24px))',
+        overflow: 'hidden',
+        backdropFilter: 'blur(18px) saturate(160%)',
+        WebkitBackdropFilter: 'blur(18px) saturate(160%)',
     };
 
-    const borderStyle = `4px solid ${theme === 'dark' ? "rgba(0, 27, 233, 0.87)" : "rgba(255, 1, 1, 0.87)"}`;
-    const boxShadowStyle = theme === 'dark'
-        ? '0 20px 40px rgba(0,0,0,0.6)'
-        : '0 20px 40px rgba(0,0,0,0.15)';
+    const borderStyle = `1px solid ${isDark ? 'rgba(148,163,184,0.22)' : 'rgba(15,23,42,0.12)'}`;
+    const boxShadowStyle = isDark
+        ? '0 24px 80px rgba(0,0,0,0.62), inset 0 1px 0 rgba(255,255,255,0.06)'
+        : '0 24px 80px rgba(15,23,42,0.18), inset 0 1px 0 rgba(255,255,255,0.9)';
 
     if (isNode) {
         const node = nodes.find(n => n.id === targetId);
         if (!node) return null;
         return (
-            <>
-                <div
-                    onMouseDown={handleModalDragStart}
-                    style={{
-                        ...modalStyle,
-                        width: '480px',
-                        border: borderStyle,
-                        boxShadow: boxShadowStyle
-                    }}
-                >
-                    <NodeModalContent
-                        node={node}
-                        targetId={targetId}
-                        theme={theme}
-                        t={t}
-                        s={s}
-                        nodes={nodes}
-                        edges={edges}
-                        exposedPorts={exposedPorts}
-                        closeModal={closeModal}
-                        updateSelectedNode={updateSelectedNode}
-                        togglePortSwap={togglePortSwap}
-                        toggleExposePort={toggleExposePort}
-                        getPortLabel={getPortLabel}
-                        parsePorts={parsePorts}
-                        recordHistory={recordHistory}
-                        setNodes={setNodes}
-                        setSelectedNodeId={setSelectedNodeId}
-                        onSaveCode={onSaveCode}
-                        setFullCodeModalOpen={setFullCodeModalOpen}
-                        instantiationQuantity={instantiationQuantity}
-                        setInstantiationQuantity={setInstantiationQuantity}
-                        localCode={localCode}
-                    />
-                </div>
-                <FullCodeModal
-                    fullCodeModalOpen={fullCodeModalOpen}
-                    setFullCodeModalOpen={setFullCodeModalOpen}
-                    localCode={localCode}
-                    setLocalCode={setLocalCode}
-                    handleKeyDown={handleKeyDown}
-                    t={t}
-                    theme={theme}
-                    highlightVerilogCode={highlightVerilogCode}
-                    nodes={nodes}
+            <div
+                onMouseDown={handleModalDragStart}
+                style={{
+                    ...modalStyle,
+                    width: '560px',
+                    border: borderStyle,
+                    boxShadow: boxShadowStyle
+                }}
+            >
+                <NodeModalContent
+                    node={node}
                     targetId={targetId}
+                    theme={theme}
+                    t={t}
+                    s={s}
+                    nodes={nodes}
+                    edges={edges}
+                    exposedPorts={exposedPorts}
+                    closeModal={closeModal}
+                    updateSelectedNode={updateSelectedNode}
+                    togglePortSwap={togglePortSwap}
+                    toggleExposePort={toggleExposePort}
+                    getPortLabel={getPortLabel}
+                    parsePorts={parsePorts}
+                    recordHistory={recordHistory}
+                    setNodes={setNodes}
+                    setEdges={setEdges}
+                    setExposedPorts={setExposedPorts}
+                    setSelectedNodeId={setSelectedNodeId}
+                    currentModuleCode={currentModuleCode}
                     onSaveCode={onSaveCode}
-                    instantiationQuantity={instantiationQuantity}
-                    setInstantiationQuantity={setInstantiationQuantity}
                 />
-            </>
+            </div>
         );
     } else {
         const edge = edges.find(e => e.id === targetId);

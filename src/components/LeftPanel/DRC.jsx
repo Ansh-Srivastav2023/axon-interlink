@@ -4,6 +4,72 @@ import { IconAlert, IconZap, IconCircleSlash, IconActivity } from '../../styles'
 const DRC = ({ nodes, edges, exposedPorts, theme, t, s, setSelectedNodeId, setSelectedEdgeId, setCenter, setNodes }) => {
     const activeAlerts = [];
     if (!nodes || !Array.isArray(nodes)) return null;
+    const safeEdges = edges || [];
+    const instanceNameOwners = new Map();
+
+    nodes.forEach((node) => {
+        const instanceName = node?.data?.instanceName;
+        if (!instanceName) return;
+        if (!instanceNameOwners.has(instanceName)) {
+            instanceNameOwners.set(instanceName, node);
+            return;
+        }
+        activeAlerts.push({
+            node,
+            type: 'error',
+            icon: <IconZap color="#ef4444" size={14} />,
+            text: `Duplicate Instance Name: '${instanceName}' is used by multiple blocks. Generated Verilog requires unique instance names.`,
+        });
+    });
+
+    safeEdges.forEach((edge) => {
+        if (!edge) return;
+        const srcNode = nodes.find((node) => node?.id === edge.source);
+        const tgtNode = nodes.find((node) => node?.id === edge.target);
+        if (!srcNode || !tgtNode) {
+            activeAlerts.push({
+                node: srcNode || tgtNode || nodes[0],
+                edgeId: edge.id,
+                type: 'error',
+                icon: <IconAlert color="#ef4444" size={14} />,
+                text: `Invalid Edge: '${edge.id || 'unnamed edge'}' references a missing block.`,
+            });
+            return;
+        }
+        const srcPort = (srcNode.data?.outputs || []).find((port) => port?.name === edge.sourceHandle);
+        const tgtPort = (tgtNode.data?.inputs || []).find((port) => port?.name === edge.targetHandle);
+        if (!srcPort || !tgtPort) {
+            activeAlerts.push({
+                node: tgtNode,
+                edgeId: edge.id,
+                type: 'error',
+                icon: <IconAlert color="#ef4444" size={14} />,
+                text: `Invalid Edge Port: '${edge.id || 'unnamed edge'}' references a port that no longer exists.`,
+            });
+        }
+    });
+
+    const topPortDirections = new Map();
+    Object.values(exposedPorts || {}).forEach((port) => {
+        if (!port) return;
+        const topName = port.externalName || port.portName;
+        const direction = port.isInput ? 'input' : 'output';
+        const previous = topPortDirections.get(topName);
+        if (previous && previous.direction !== direction) {
+            const node = nodes.find((candidate) => candidate?.id === port.nodeId) || previous.node;
+            activeAlerts.push({
+                node,
+                type: 'error',
+                icon: <IconZap color="#ef4444" size={14} />,
+                text: `Top Port Conflict: '${topName}' is exposed as both input and output.`,
+            });
+        } else {
+            topPortDirections.set(topName, {
+                direction,
+                node: nodes.find((candidate) => candidate?.id === port.nodeId),
+            });
+        }
+    });
 
     // Step 1: Check each node's ports
     nodes.forEach((node) => {
@@ -15,7 +81,6 @@ const DRC = ({ nodes, edges, exposedPorts, theme, t, s, setSelectedNodeId, setSe
         const nodeAutoRoute = node.data.autoRoute || {};
         const nodeInputs = node.data.inputs || [];
         const nodeOutputs = node.data.outputs || [];
-        const safeEdges = edges || [];
 
         nodeInputs.forEach((port) => {
             if (!port || !port.name) return;
@@ -25,6 +90,23 @@ const DRC = ({ nodes, edges, exposedPorts, theme, t, s, setSelectedNodeId, setSe
             const tieoff = nodeTieoffs[port.name];
             const autoRoute = nodeAutoRoute[port.name];
             const isExposed = exposedPorts && exposedPorts[`${node.id}__${port.name}`];
+
+            if (connected.length > 0 && tieoff) {
+                activeAlerts.push({
+                    node,
+                    type: 'error',
+                    icon: <IconZap color="#ef4444" size={14} />,
+                    text: `Input Conflict: ${node.data.instanceName || 'Block'}.${port.name} is wired and tied to ${tieoff}.`,
+                });
+            }
+            if (connected.length > 0 && autoRoute) {
+                activeAlerts.push({
+                    node,
+                    type: 'error',
+                    icon: <IconZap color="#ef4444" size={14} />,
+                    text: `Input Conflict: ${node.data.instanceName || 'Block'}.${port.name} is wired and auto-routed.`,
+                });
+            }
 
             if (connected.length === 0 && !tieoff && !autoRoute && !isExposed) {
                 activeAlerts.push({

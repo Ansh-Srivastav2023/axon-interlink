@@ -9,13 +9,13 @@ export const highlightVerilogCode = (rawCode, currentTheme) => {
     const isDark = currentTheme === 'dark';
 
     const styles = {
-        keyword: isDark ? 'color: #3b82f6; font-weight: bold;' : 'color: #2563eb; font-weight: bold;',
-        type: isDark ? 'color: #a855f7; font-weight: bold;' : 'color: #7c3aed; font-weight: bold;',
-        literal: isDark ? 'color: #10b981;' : 'color: #16a34a;',
-        string: isDark ? 'color: #f59e0b;' : 'color: #d97706;',
-        comment: isDark ? 'color: #64748b; font-style: italic;' : 'color: #94a3b8; font-style: italic;',
-        system: isDark ? 'color: #f59e0b;' : 'color: #d97706;',
-        moduleName: isDark ? 'color: #60a5fa; font-weight: 600;' : 'color: #2563eb; font-weight: 600;', // optional distinct color
+        keyword: isDark ? 'color: #ff7b72; font-weight: 700;' : 'color: #cf222e; font-weight: 700;',
+        type: isDark ? 'color: #d2a8ff; font-weight: 700;' : 'color: #8250df; font-weight: 700;',
+        literal: isDark ? 'color: #79c0ff;' : 'color: #0550ae;',
+        string: isDark ? 'color: #a5d6ff;' : 'color: #0a3069;',
+        comment: isDark ? 'color: #8b949e; font-style: italic;' : 'color: #6e7781; font-style: italic;',
+        system: isDark ? 'color: #ffa657;' : 'color: #953800;',
+        moduleName: isDark ? 'color: #7ee787; font-weight: 700;' : 'color: #116329; font-weight: 700;',
     };
 
     // ---------- Keyword lists ----------
@@ -30,14 +30,14 @@ export const highlightVerilogCode = (rawCode, currentTheme) => {
         'wait', 'event', 'trigger', 'return', 'break', 'continue',
         'assert', 'assume', 'cover', 'property', 'sequence', 'randsequence',
         'with', 'inside', 'dist', 'solve', 'before', 'unique', 'priority',
-        'constraint', 'randomize', 'pre_randomize', 'post_randomize'
+        'constraint', 'randomize', 'pre_randomize', 'post_randomize', 'assign'
     ];
 
     const types = [
         'input', 'output', 'inout', 'ref',
         'wire', 'reg', 'logic', 'bit', 'byte', 'shortint', 'int', 'longint',
         'integer', 'time', 'real', 'shortreal', 'void', 'string', 'chandle',
-        'struct', 'enum', 'union', 'packed', 'unpacked',
+        'struct', 'enum', 'union', 'packed', 'unpacked', 
         'signed', 'unsigned', 'static', 'automatic', 'local', 'protected',
         'virtual', 'pure', 'extern', 'covergroup', 'coverpoint', 'cross',
         'parameter', 'localparam', 'specparam', 'type', 'typedef', 'import', 'export',
@@ -48,7 +48,7 @@ export const highlightVerilogCode = (rawCode, currentTheme) => {
         'display', 'write', 'monitor', 'strobe', 'fopen', 'fclose', 'fdisplay',
         'fwrite', 'fmonitor', 'fstrobe', 'readmemh', 'readmemb', 'writememh',
         'writememb', 'finish', 'stop', 'exit', 'dumpfile', 'dumpvars', 'dumpall',
-        'dumpon', 'dumpoff', 'dumpflush', 'dumplimit', 'dumplimit', 'scope',
+        'dumpon', 'dumpoff', 'dumpflush', 'dumplimit', 'dumplimit', 'scope', 
         'showscope', 'printtimescale', 'timeformat', 'realtobits', 'bitstoreal',
         'itor', 'rtoi', 'signed', 'unsigned', 'bits'
     ];

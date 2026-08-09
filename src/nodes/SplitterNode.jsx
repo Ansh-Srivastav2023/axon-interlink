@@ -6,6 +6,7 @@ import {
 import {
     lightNodeStyles,
     darkNodeStyles,
+    InfoIcon,
     renderDecorations
 } from '../styles';
 
@@ -86,6 +87,7 @@ export default function SplitterNode({ id, data, selected }) {
 
     return (
         <div style={containerStyle}>
+            <InfoIcon id={id} data={data} t={t} />
             {/* 3. VERTICAL SIDE-LABEL TEXT EXACTLY LIKE YOUR DRAWING */}
             <div style={{
                 transform: 'rotate(-90deg)',

@@ -3,7 +3,7 @@ const NodeModalFooter = ({
     nodes,
     t,
     s,
-    localCode,
+    currentModuleCode,
     recordHistory,
     setNodes,
     closeModal,
@@ -16,10 +16,11 @@ const NodeModalFooter = ({
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginTop: '14px',
-        paddingTop: '10px',
+        padding: '14px 18px',
         borderTop: `1px solid ${t.border}`,
-        userSelect: 'none'
+        userSelect: 'none',
+        background: t.bgSecondary,
+        cursor: 'default',
     }}>
         <button
             onClick={(e) => {
@@ -33,11 +34,12 @@ const NodeModalFooter = ({
             }}
             style={{
                 ...s.dangerBtn,
+                borderRadius: '10px',
+                padding: '10px 14px',
+                fontWeight: 800,
                 transition: 'transform 0.1s ease, background-color 0.2s',
                 cursor: 'pointer'
             }}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#b91c1c'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = t.danger}
         >
             Purge Block
         </button>
@@ -46,9 +48,9 @@ const NodeModalFooter = ({
                 e.currentTarget.style.transform = 'scale(0.94)';
                 const targetNode = nodes.find(n => n.id === targetId);
 
-                if (targetNode && !targetNode.data.isSplitter && !targetNode.data.isBundler) {
+                if (targetNode && !targetNode.data.isSplitter && !targetNode.data.isBundler && instantiationQuantity > 1) {
                     if (typeof onSaveCode === 'function') {
-                        onSaveCode(targetId, targetNode.data.moduleName, localCode, instantiationQuantity);
+                        onSaveCode(targetId, targetNode.data.moduleName, currentModuleCode, instantiationQuantity);
                         setInstantiationQuantity(1);
                     }
                 }
@@ -57,12 +59,12 @@ const NodeModalFooter = ({
             style={{
                 ...s.primaryBtn,
                 margin: 0,
-                padding: '6px 16px',
+                padding: '10px 16px',
+                borderRadius: '10px',
+                fontWeight: 800,
                 transition: 'transform 0.1s ease, background-color 0.2s',
                 cursor: 'pointer'
             }}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = t.primaryHover || '#1d4ed8'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = t.primary}
         >
             Apply Changes
         </button>

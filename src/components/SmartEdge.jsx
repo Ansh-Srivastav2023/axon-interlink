@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { getBezierPath, EdgeLabelRenderer, useReactFlow } from '@xyflow/react';
+import { getSmoothStepPath, EdgeLabelRenderer, useReactFlow } from '@xyflow/react';
 
 
 import { IconAlert } from '../styles';
@@ -11,6 +11,8 @@ export default function SmartEdge({ id, source, sourceHandle, sourceX, sourceY, 
 
     const isGlowing = data?.isGlowing || false;
     const isFlashing = data?.isFlashing || false;
+    const isDimmed = data?.isDimmed || false;
+    const isFlowAnimated = !!data?.animateFlow;
 
     const hasWarning = data?.warning;
     const edgeWidth = data?.bitWidth || 1;
@@ -18,7 +20,11 @@ export default function SmartEdge({ id, source, sourceHandle, sourceX, sourceY, 
 
     const edgeColor = isFlashing
         ? '#ef4444'
-        : (data?.color || (selected ? '#3b82f6' : isGlowing ? '#3b82f6' : hasWarning ? '#f59e0b' : isBus ? '#6366f1' : '#64748b'));
+        : selected || isGlowing
+            ? '#3b82f6'
+            : hasWarning
+                ? '#f59e0b'
+                : data?.sourceModuleColor || data?.color || (isBus ? '#6366f1' : '#64748b');
 
     const activeThickness = (selected || isGlowing) ? (isBus ? Math.min(4.5, 1.5 + edgeWidth * 0.25) + 2 : 3) : (isBus ? Math.min(4.5, 1.5 + edgeWidth * 0.25) : 1.5);
 
@@ -26,14 +32,25 @@ export default function SmartEdge({ id, source, sourceHandle, sourceX, sourceY, 
         ...style,
         strokeWidth: activeThickness,
         stroke: edgeColor,
-        strokeDasharray: hasWarning ? '5,3' : undefined,
-        transition: isFlashing ? 'none' : 'stroke 0.2s, stroke-width 0.2s',
-        animation: isFlashing ? 'drcWirePulse 0.8s ease-in-out 2' : 'none'
+        opacity: isDimmed && !selected && !isGlowing && !isFlashing ? 0.16 : 1,
+        strokeDasharray: hasWarning ? '5,3' : isFlowAnimated ? '10,8' : undefined,
+        strokeDashoffset: isFlowAnimated ? 18 : undefined,
+        transition: isFlashing ? 'none' : 'stroke 0.2s, stroke-width 0.2s, opacity 0.2s',
+        animation: isFlashing ? 'drcWirePulse 0.8s ease-in-out 2' : isFlowAnimated ? 'axonWireFlow 0.85s linear infinite' : 'none'
     };
 
     const [edgePath, labelX, labelY] = useMemo(
-        () => getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition }),
-        [sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition]
+        () => getSmoothStepPath({
+            sourceX,
+            sourceY,
+            targetX,
+            targetY,
+            sourcePosition,
+            targetPosition,
+            borderRadius: 14,
+            offset: data?.routeOffset ?? 28,
+        }),
+        [sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data?.routeOffset]
     );
     return (
         <g

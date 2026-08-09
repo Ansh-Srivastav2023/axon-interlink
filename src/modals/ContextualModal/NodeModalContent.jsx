@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { IconBox } from '../../styles/icons';
 import ModalHeader from './ModalHeader';
 import SplitterPanel from './SplitterPanel';
@@ -21,13 +22,13 @@ const NodeModalContent = ({
     parsePorts,
     recordHistory,
     setNodes,
+    setEdges,
+    setExposedPorts,
     setSelectedNodeId,
     onSaveCode,
-    setFullCodeModalOpen,
-    instantiationQuantity,
-    setInstantiationQuantity,
-    localCode
+    currentModuleCode
 }) => {
+    const [instantiationQuantity, setInstantiationQuantity] = useState(1);
     const isDark = theme === 'dark';
     const isSplitterOrBundler = !!(node.data.isSplitter || node.data.isBundler);
 
@@ -48,12 +49,13 @@ const NodeModalContent = ({
             <div 
                 className="node-modal-scroll"
                 style={{
-                    height: '320px',
+                    maxHeight: '430px',
                     overflowY: 'auto',
-                    paddingRight: '8px',
+                    padding: '16px 18px',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '12px',
+                    cursor: 'default',
                 }}
             >
                 <style>{`
@@ -87,6 +89,8 @@ const NodeModalContent = ({
                         parsePorts={parsePorts}
                         recordHistory={recordHistory}
                         setNodes={setNodes}
+                        setEdges={setEdges}
+                        setExposedPorts={setExposedPorts}
                         edges={edges}
                         exposedPorts={exposedPorts}
                         toggleExposePort={toggleExposePort}
@@ -102,7 +106,6 @@ const NodeModalContent = ({
                         setInstantiationQuantity={setInstantiationQuantity}
                         getPortLabel={getPortLabel}
                         togglePortSwap={togglePortSwap}
-                        setFullCodeModalOpen={setFullCodeModalOpen}
                         edges={edges}
                         exposedPorts={exposedPorts}
                         toggleExposePort={toggleExposePort}
@@ -114,7 +117,6 @@ const NodeModalContent = ({
                 nodes={nodes}
                 t={t}
                 s={s}
-                localCode={localCode}
                 recordHistory={recordHistory}
                 setNodes={setNodes}
                 closeModal={closeModal}
@@ -122,7 +124,7 @@ const NodeModalContent = ({
                 onSaveCode={onSaveCode}
                 instantiationQuantity={instantiationQuantity}
                 setInstantiationQuantity={setInstantiationQuantity}
-                localCode={localCode}
+                currentModuleCode={currentModuleCode}
             />
         </>
     );

@@ -1,6 +1,6 @@
 // src/components/LeftPanel/TraceTab.jsx
 const TraceTab = ({
-    theme, t, s,
+    t, s,
     nodes, exposedPorts,
     hierarchyInputRef,
     hierarchySearchQuery, setHierarchySearchQuery,
@@ -67,13 +67,17 @@ const TraceTab = ({
                                 setHierarchyResults(null);
                             }}
                             style={{
+                                ...s.iconBtn,
                                 position: 'absolute',
                                 right: '6px',
                                 top: '50%',
                                 transform: 'translateY(-50%)',
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
+                                width: '24px',
+                                height: '24px',
+                                minHeight: '24px',
+                                borderRadius: '6px',
+                                background: 'transparent',
+                                borderColor: 'transparent',
                                 color: t.textMuted,
                                 fontSize: '14px',
                                 lineHeight: 1,
@@ -163,7 +167,7 @@ const TraceTab = ({
                                             </div>
                                         )}
                                         {drivers.length === 0 && Object.keys(fanoutByPort).length === 0 && unconnectedInputs.length === 0 && <div style={{ fontSize: '11px', color: t.textMuted, fontStyle: 'italic' }}>No connectivity data — module has no wired ports.</div>}
-                                        <button onClick={() => { const targetNodeId = node.id; jumpToNode(node); setNodes(nds => nds.map(n => n.id === targetNodeId ? { ...n, data: { ...n.data, isDrcFlashing: true } } : n)); setTimeout(() => { setNodes(nds => nds.map(n => n.id === targetNodeId ? { ...n, data: { ...n.data, isDrcFlashing: false } } : n)); }, 1600); }} style={{ ...s.smallBtn, alignSelf: 'flex-start', fontSize: '11px', marginTop: '2px', background: 'rgba(255, 255, 255, 0.08)', border: '1px solid rgba(255, 255, 255, 0.2)', color: theme === 'dark' ? '#fff' : '#111' }}>⊞ Jump to block</button>
+                                        <button onClick={() => { const targetNodeId = node.id; jumpToNode(node); setNodes(nds => nds.map(n => n.id === targetNodeId ? { ...n, data: { ...n.data, isDrcFlashing: true } } : n)); setTimeout(() => { setNodes(nds => nds.map(n => n.id === targetNodeId ? { ...n, data: { ...n.data, isDrcFlashing: false } } : n)); }, 1600); }} style={{ ...s.smallBtn, alignSelf: 'flex-start', fontSize: '11px', marginTop: '2px' }}>⊞ Jump to block</button>
                                     </div>
                                 )}
                             </div>

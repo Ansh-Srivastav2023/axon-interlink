@@ -17,8 +17,8 @@ export const STANDARD_LIBRARY = {
     decoder_2x4: { type: 'hardware', inputs: 'en, a[1:0]', outputs: 'y[3:0]', code: `assign y = en ? (1 << a) : 4'b0000;` },
     alu_8bit: { type: 'hardware', inputs: 'a[7:0], b[7:0], op[2:0]', outputs: 'res[7:0], zero', code: `always @(*) begin\n  case(op)\n    3'b000: res = a + b;\n    3'b001: res = a - b;\n    3'b010: res = a & b;\n    3'b011: res = a | b;\n    3'b100: res = a ^ b;\n    default: res = 8'b0;\n  endcase\nend\nassign zero = (res == 8'b0);` },
     // Append these inside your existing STANDARD_LIBRARY object
-    splitter: { type: 'splitter', isSplitter: true, inputs: 'bus_in', outputs: 'out0[1:0]', code: '// Auto-managed' },
-    bundler: { type: 'splitter', isBundler: true, inputs: 'in0[1:0]', outputs: 'bus_out', code: '// Auto-managed' }
+    splitter: { type: 'splitter', isSplitter: true, inputs: 'bus_in[7:0]', outputs: 'out0[3:0], out1[7:4]', code: '// Auto-managed' },
+    bundler: { type: 'splitter', isBundler: true, inputs: 'in0[3:0], in1[3:0]', outputs: 'bus_out[7:0]', code: '// Auto-managed' }
 };
 
 export const parsePorts = (str) => {

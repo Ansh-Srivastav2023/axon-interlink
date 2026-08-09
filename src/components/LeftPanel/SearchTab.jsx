@@ -52,13 +52,17 @@ const SearchTab = ({
                                 setSearchHighlightIds(new Set());
                             }}
                             style={{
+                                ...s.iconBtn,
                                 position: 'absolute',
                                 right: '6px',
                                 top: '50%',
                                 transform: 'translateY(-50%)',
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
+                                width: '24px',
+                                height: '24px',
+                                minHeight: '24px',
+                                borderRadius: '6px',
+                                background: 'transparent',
+                                borderColor: 'transparent',
                                 color: t.textMuted,
                                 fontSize: '14px',
                                 lineHeight: 1,

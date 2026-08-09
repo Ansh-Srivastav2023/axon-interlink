@@ -143,36 +143,14 @@ const LibraryTab = ({
                     <button
                         onClick={() => spawnPrebuilt(selectedStandardBlock)}
                         style={{
-                            position: 'relative',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
+                            ...s.primaryBtn,
                             gap: '6px',
-                            padding: '9px 16px',
-                            fontSize: '13px',
-                            fontWeight: 600,
-                            borderRadius: '15px',
-                            cursor: 'pointer',
-                            border: "3px solid transparent",
-                            backgroundImage: `linear-gradient(${t.bgSecondary}, ${t.bgSecondary}), linear-gradient(90deg, #c1067d, #4800ff)`,
-                            backgroundOrigin: "border-box",
-                            backgroundClip: "padding-box, border-box",
-                            color: tokens.text,
-                            transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
-                            outline: 'none',
+                            marginTop: 0,
+                            padding: '9px 14px',
                         }}
                     >
-                        <div
-                            style={{
-                                position: 'absolute',
-                                inset: '1px',
-                                borderRadius: '15px',
-                                background: `linear-gradient(180deg, ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.8)'} 0%, transparent 60%)`,
-                                pointerEvents: 'none',
-                            }}
-                        />
-                        <span style={{ position: 'relative', zIndex: 1, fontSize: '16px', lineHeight: 1 }}>+</span>
-                        <span style={{ position: 'relative', zIndex: 1 }}>Add</span>
+                        <span style={{ fontSize: '16px', lineHeight: 1 }}>+</span>
+                        <span>Add</span>
                     </button>
                 </div>
             </div>
@@ -213,29 +191,11 @@ const LibraryTab = ({
                         type="submit"
                         disabled={!newModuleName.trim()}
                         style={{
-                            position: 'relative',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '8px',
-                            padding: '9px 16px',
-                            fontSize: '14px',
-                            fontWeight: 500,
-                            letterSpacing: '-0.01em',
-                            borderRadius: '20px',
-                            
-                            color: newModuleName.trim() 
-                                ? (isDark ? 'rgba(245, 245, 245, 0.95)' : 'rgba(17, 17, 17, 0.95)')
-                                : (isDark ? 'rgba(245, 245, 245, 0.35)' : 'rgba(17, 17, 17, 0.35)'),
-                           
+                            ...s.primaryBtn,
+                            width: '100%',
+                            marginTop: '2px',
+                            padding: '10px 14px',
                             cursor: newModuleName.trim() ? 'pointer' : 'not-allowed',
-                            transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                            outline: 'none',
-                            userSelect: 'none',
-                            border: "3px solid transparent",
-                            backgroundImage: `linear-gradient(${t.bgSecondary}, ${t.bgSecondary}), linear-gradient(90deg, #c1067d, #4800ff)`,
-                            backgroundOrigin: "border-box",
-                            backgroundClip: "padding-box, border-box",
                         }}
                         onMouseEnter={() => {
                             if (!newModuleName.trim()) return;}}
@@ -253,7 +213,7 @@ const LibraryTab = ({
                             e.currentTarget.style.opacity = '1';
                         }}
                     >
-                        <span style={{ position: 'relative', zIndex: 1, fontFamily: 'monospace' }}>
+                        <span style={{ fontFamily: 'monospace' }}>
                             Instantiate Hardware Block
                         </span>
                     </button>

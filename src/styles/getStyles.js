@@ -1,6 +1,9 @@
+import { getButtonStyles } from './buttonStyles';
+
 export default function getStyles(t, leftCollapsed, rightCollapsed, leftWidth, rightWidth, isDragging) {
     // Dynamic layout checking for phone/tablet targets
     const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+    const buttonStyles = getButtonStyles(t, t.bgSecondary === '#050505' ? 'dark' : 'light');
 
     return {
         tabBarContainer: {
@@ -36,7 +39,7 @@ export default function getStyles(t, leftCollapsed, rightCollapsed, leftWidth, r
         },
         headerTitle: { fontSize: '14px', fontWeight: 600, color: t.textHeading, letterSpacing: '-0.2px', whiteSpace: 'nowrap' },
         headerActions: { display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 },
-        iconBtn: { width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(90deg, #2897ff, #4800ff)', border: 'none', borderRadius: '50%', cursor: 'pointer', color: '#fff', fontSize: '12px', padding: 0, flexShrink: 0 },
+        iconBtn: { ...buttonStyles.icon, flexShrink: 0 },
 
         badge: {
             padding: '5px 10px',
@@ -67,13 +70,13 @@ export default function getStyles(t, leftCollapsed, rightCollapsed, leftWidth, r
             top: 0,
             bottom: 0,
             transform: isMobile && leftCollapsed ? 'translateX(-100%)' : 'translateX(0)', // Slides completely out of view when collapsed
-            width: leftCollapsed ? (isMobile ? '0px' : '60px') : (isMobile ? '85vw' : `${leftWidth}px`),
-            minWidth: leftCollapsed ? (isMobile ? '0px' : '44px') : (isMobile ? '85vw' : `${leftWidth}px`),
+            width: leftCollapsed ? (isMobile ? '0px' : '48px') : (isMobile ? '85vw' : `${leftWidth}px`),
+            minWidth: leftCollapsed ? (isMobile ? '0px' : '48px') : (isMobile ? '85vw' : `${leftWidth}px`),
             backgroundColor: t.bgSecondary,
             border: 'none',
             borderRadius: isMobile ? '0' : '8px',
             display: 'flex',
-            flexDirection: 'column',
+            flexDirection: 'row',
             overflow: 'hidden',
             flexShrink: 0,
             boxShadow: isMobile && !leftCollapsed ? `4px 0 24px rgba(0,0,0,0.4)` : 'none',
@@ -88,13 +91,13 @@ export default function getStyles(t, leftCollapsed, rightCollapsed, leftWidth, r
             top: 0,
             bottom: 0,
             transform: isMobile && rightCollapsed ? 'translateX(100%)' : 'translateX(0)', // Slides completely out of view when collapsed
-            width: rightCollapsed ? (isMobile ? '0px' : '60px') : (isMobile ? '85vw' : `${rightWidth}px`),
-            minWidth: rightCollapsed ? (isMobile ? '0px' : '44px') : (isMobile ? '85vw' : `${rightWidth}px`),
+            width: rightCollapsed ? (isMobile ? '0px' : '48px') : (isMobile ? '85vw' : `${rightWidth}px`),
+            minWidth: rightCollapsed ? (isMobile ? '0px' : '48px') : (isMobile ? '85vw' : `${rightWidth}px`),
             backgroundColor: t.bgSecondary,
             border: 'none',
             borderRadius: isMobile ? '0' : '8px',
             display: 'flex',
-            flexDirection: 'column',
+            flexDirection: 'row',
             overflow: 'hidden',
             flexShrink: 0,
             boxShadow: isMobile && !rightCollapsed ? `-4px 0 24px rgba(0,0,0,0.4)` : 'none',
@@ -131,11 +134,13 @@ export default function getStyles(t, leftCollapsed, rightCollapsed, leftWidth, r
             border: `1px solid ${t.bgSecondary === '#050505' ? '#222222' : '#cbd5e1'}`,
         },
 
-        primaryBtn: { padding: '9px 14px', background: t.primary, color: '#fff', border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: 500, cursor: 'pointer', marginTop: '4px' },
-        smallBtn: { padding: '6px 10px', background: t.bgTertiary, border: 'none', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', color: t.text },
-        tabBtnActive: { padding: '6px 12px', background: t.bgTertiary, borderRadius: '6px', fontSize: '12px', cursor: 'pointer', color: t.textHeading, fontWeight: 600, border: 'none' },
-        tabBtnInactive: { padding: '6px 12px', background: 'transparent', border: '1px solid transparent', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', color: t.textSecondary },
-        dangerBtn: { padding: '7px 12px', background: t.danger, border: 'none', borderRadius: '6px', fontSize: '12px', fontWeight: 500, cursor: 'pointer', color: '#fff' },
+        button: buttonStyles.base,
+        primaryBtn: { ...buttonStyles.primary, marginTop: '4px' },
+        smallBtn: { ...buttonStyles.secondary, minHeight: '30px', padding: '6px 10px' },
+        tabBtnActive: buttonStyles.tab(true),
+        tabBtnInactive: buttonStyles.tab(false),
+        dangerBtn: buttonStyles.danger,
+        softDangerBtn: buttonStyles.softDanger,
         infoRow: { display: 'flex', justifyContent: 'space-between', fontSize: '12px', gap: '8px', padding: '4px 0' },
         infoLabel: { color: t.textSecondary },
         infoValue: { color: t.textHeading, fontFamily: 'monospace' },
@@ -148,8 +153,8 @@ export default function getStyles(t, leftCollapsed, rightCollapsed, leftWidth, r
             fontFamily: '"SF Mono", Menlo, Monaco, monospace',
             fontSize: '12px',
             lineHeight: '1.6',
-            color: t.text,
-            background: t.codeBg,
+            color: t.bgSecondary === '#050505' ? '#e6edf3' : '#24292f',
+            background: t.bgSecondary === '#050505' ? '#0d1117' : '#ffffff',
             whiteSpace: 'pre',        // preserves spaces, no wrapping
             overflowX: 'auto',        // horizontal scroll when needed
             wordWrap: 'normal',       // disable word breaking
@@ -157,7 +162,7 @@ export default function getStyles(t, leftCollapsed, rightCollapsed, leftWidth, r
             height: '100%',
             boxSizing: 'border-box',
             scrollbarWidth: 'thin',
-            scrollbarColor: t.bgSecondary === '#050505' ? '#333333 #050505' : '#cbd5e1 #f3f4f6'
+            scrollbarColor: t.bgSecondary === '#050505' ? '#30363d #0d1117' : '#c8d1dc #f6f8fa'
         },
 
         codeEditorInput: {
@@ -169,10 +174,10 @@ export default function getStyles(t, leftCollapsed, rightCollapsed, leftWidth, r
             fontSize: '12px',
             lineHeight: '1.5',
             padding: '12px',
-            background: t.codeBg,
-            color: t.text,
-            border: `1px solid ${t.borderStrong}`,
-            borderRadius: '6px',
+            background: t.bgSecondary === '#050505' ? '#0d1117' : '#ffffff',
+            color: t.bgSecondary === '#050505' ? '#e6edf3' : '#24292f',
+            border: `1px solid ${t.bgSecondary === '#050505' ? '#30363d' : '#d0d7de'}`,
+            borderRadius: '9px',
             outline: 'none',
             resize: 'none',
             whiteSpace: 'pre',        // no wrapping
@@ -180,7 +185,7 @@ export default function getStyles(t, leftCollapsed, rightCollapsed, leftWidth, r
             wordWrap: 'normal',       // no soft wrap
             overflowWrap: 'normal',
             scrollbarWidth: 'thin',
-            scrollbarColor: t.bgSecondary === '#050505' ? '#333333 #000000' : '#cbd5e1 #f8fafc'
+            scrollbarColor: t.bgSecondary === '#050505' ? '#30363d #0d1117' : '#c8d1dc #f6f8fa'
         }
     };
 }

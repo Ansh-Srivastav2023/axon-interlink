@@ -8,7 +8,13 @@ export const AppLogo = ({ size = 28, t }) => {
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
-        setMounted(true); // Only animate after client mount
+        let cancelled = false;
+        queueMicrotask(() => {
+            if (!cancelled) setMounted(true); // Only animate after client mount
+        });
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     return (

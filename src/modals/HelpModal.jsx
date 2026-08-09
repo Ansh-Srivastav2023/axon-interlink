@@ -1,584 +1,311 @@
 import { useState } from 'react';
 import {
-    IconAlert,
-    IconZap,
-    IconCircleSlash,
     IconActivity,
+    IconAlert,
+    IconCircleSlash,
     IconHelp,
     IconX,
+    IconZap,
 } from '../styles';
 
-// ---------- SVG Icons for tab buttons ----------
 const IconKeyboard = () => (
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="2" y="4" width="20" height="16" rx="2" ry="2" />
-        <line x1="6" y1="8" x2="6" y2="8.01" />
-        <line x1="10" y1="8" x2="10" y2="8.01" />
-        <line x1="14" y1="8" x2="14" y2="8.01" />
-        <line x1="18" y1="8" x2="18" y2="8.01" />
-        <line x1="8" y1="12" x2="8" y2="12.01" />
-        <line x1="12" y1="12" x2="12" y2="12.01" />
-        <line x1="16" y1="12" x2="16" y2="12.01" />
-        <line x1="4" y1="16" x2="20" y2="16" />
+        <rect x="2" y="4" width="20" height="16" rx="2" />
+        <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M7 12h.01M11 12h.01M15 12h.01M4 16h16" />
     </svg>
 );
 
 const IconRules = () => (
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-        <line x1="16" y1="13" x2="8" y2="13" />
-        <line x1="16" y1="17" x2="8" y2="17" />
-        <polyline points="10 9 9 9 8 9" />
+        <path d="M14 2v6h6M8 13h8M8 17h8M8 9h2" />
     </svg>
 );
 
 const IconFeatures = () => (
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+        <path d="M12 2l3.1 6.3L22 9.3l-5 4.8 1.2 6.9L12 17.8 5.8 21 7 14.1 2 9.3l6.9-1z" />
     </svg>
 );
 
 const IconLightbulb = () => (
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M9 21h6" />
-        <path d="M12 17v4" />
-        <path d="M12 3a7 7 0 0 0-4.95 11.95A7 7 0 0 0 9 17h6a7 7 0 0 0 1.95-2.05A7 7 0 0 0 12 3z" />
+        <path d="M9 21h6M12 17v4" />
+        <path d="M12 3a7 7 0 0 0-4 12c.7.7 1 1.2 1 2h6c0-.8.3-1.3 1-2a7 7 0 0 0-4-12z" />
     </svg>
 );
 
-// -------------------------------------------------
+const Section = ({ title, children, t }) => (
+    <section
+        style={{
+            background: t.bg,
+            border: `1px solid ${t.border}`,
+            borderRadius: '10px',
+            padding: '13px 14px',
+        }}
+    >
+        <h3
+            style={{
+                margin: '0 0 9px',
+                color: t.textHeading,
+                fontSize: '13px',
+                fontWeight: 800,
+                letterSpacing: '0.45px',
+                textTransform: 'uppercase',
+            }}
+        >
+            {title}
+        </h3>
+        {children}
+    </section>
+);
+
+const InfoCard = ({ title, children, accent = '#3b82f6', badge, t }) => (
+    <div
+        style={{
+            border: `1px solid ${t.border}`,
+            borderLeft: `3px solid ${accent}`,
+            borderRadius: '8px',
+            padding: '10px 12px',
+            background: t.bgSecondary,
+        }}
+    >
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginBottom: '5px' }}>
+            <strong style={{ color: t.textHeading, fontSize: '13px' }}>{title}</strong>
+            {badge && (
+                <span
+                    style={{
+                        color: accent,
+                        border: `1px solid ${accent}55`,
+                        borderRadius: '999px',
+                        padding: '1px 7px',
+                        fontSize: '10px',
+                        fontWeight: 800,
+                        textTransform: 'uppercase',
+                        whiteSpace: 'nowrap',
+                    }}
+                >
+                    {badge}
+                </span>
+            )}
+        </div>
+        <div style={{ color: t.textSecondary, fontSize: '13px', lineHeight: 1.55 }}>
+            {children}
+        </div>
+    </div>
+);
+
+const KbdRow = ({ combo, children, kbdStyle }) => (
+    <>
+        <kbd style={kbdStyle}>{combo}</kbd>
+        <span>{children}</span>
+    </>
+);
+
+const Code = ({ children }) => (
+    <code
+        style={{
+            fontFamily: 'Consolas, Menlo, monospace',
+            fontSize: '0.94em',
+            padding: '1px 4px',
+            borderRadius: '4px',
+            background: 'rgba(125,125,125,0.14)',
+        }}
+    >
+        {children}
+    </code>
+);
 
 const HelpModal = ({ showHelp, setShowHelp, theme, t, kbdStyle }) => {
-    const [activeTab, setActiveTab] = useState('shortcuts');
-    
+    const [activeTab, setActiveTab] = useState('workflow');
+
     if (!showHelp) return null;
-    
+
     const tabStyle = (tabId) => ({
-        background: 'transparent',
-        border: 'none',
+        background: activeTab === tabId ? (theme === 'dark' ? 'rgba(59,130,246,0.14)' : 'rgba(37,99,235,0.09)') : 'transparent',
+        border: `1px solid ${activeTab === tabId ? (theme === 'dark' ? 'rgba(96,165,250,0.45)' : 'rgba(37,99,235,0.28)') : 'transparent'}`,
         color: activeTab === tabId ? t.primary : t.textSecondary,
         cursor: 'pointer',
-        padding: '6px 12px',
+        padding: '7px 10px',
         fontSize: '12px',
-        fontFamily: 'monospace',
-        transition: 'color 0.15s, border-bottom 0.15s',
-        borderBottom: activeTab === tabId ? `2px solid ${t.primary}` : '2px solid transparent',
-        borderRadius: 0,
-        fontWeight: activeTab === tabId ? 600 : 400,
+        transition: 'color 0.15s, background 0.15s, border-color 0.15s',
+        borderRadius: '8px',
+        fontWeight: activeTab === tabId ? 800 : 650,
         display: 'inline-flex',
         alignItems: 'center',
         gap: '6px',
     });
 
+    const renderWorkflow = () => (
+        <div style={{ display: 'grid', gap: '12px' }}>
+            <Section title="Recommended RTL workflow" t={t}>
+                <div style={{ display: 'grid', gap: '10px' }}>
+                    <InfoCard title="1. Import leaf RTL modules" badge="Project" t={t}>
+                        Use the Project tab folder icon to upload one or more <Code>.v</Code>/<Code>.sv</Code> files. The engine parses module declarations, creates blocks, stores RTL files under the active canvas, and preserves editable source code.
+                    </InfoCard>
+                    <InfoCard title="2. Import the top module" badge="Auto-wire" accent="#10b981" t={t}>
+                        Upload the top module in the same batch or later. If uploaded later, the engine now reuses the already-loaded module RTL and maps the top-module instance connections onto the existing blocks.
+                    </InfoCard>
+                    <InfoCard title="3. Edit RTL from the Project explorer" badge="RTL editor" accent="#8b5cf6" t={t}>
+                        Expand a canvas, click a Verilog filename, and edit it in the VS Code-style RTL editor. The node configuration window is for block properties and ports; RTL editing lives in the Project panel.
+                    </InfoCard>
+                    <InfoCard title="4. Generate top/testbench from the right panel" badge="Output" accent="#f59e0b" t={t}>
+                        The right panel shows generated structural top-module code and generated testbench code. Manual canvas wiring updates the generated top module automatically.
+                    </InfoCard>
+                </div>
+            </Section>
+
+            <Section title="Project explorer behavior" t={t}>
+                <ul style={{ margin: 0, paddingLeft: '18px', color: t.textSecondary, fontSize: '13px', lineHeight: 1.65 }}>
+                    <li>Each canvas represents a top-level/hierarchical module.</li>
+                    <li>Click a canvas row to expand or collapse its contained module files.</li>
+                    <li><Code>OPEN</Code> opens an inactive canvas; the active canvas shows <Code>ACTIVE</Code>.</li>
+                    <li><Code>+ Inst</Code> instantiates an inactive canvas as a reusable sub-top module in the current canvas.</li>
+                    <li>Deleting a canvas removes its module and removes instances of that canvas from other canvases.</li>
+                    <li>Deleted canvas names are reusable; recreating <Code>gpu_dmem_top</Code> should not force <Code>gpu_dmem_top_1</Code>.</li>
+                </ul>
+            </Section>
+
+            <Section title="Hierarchical design" t={t}>
+                <div style={{ color: t.textSecondary, fontSize: '13px', lineHeight: 1.65 }}>
+                    You can build several sub-top canvases, for example <Code>uart_top</Code>, <Code>gpu_dmem_top</Code>, or <Code>gpu_cmp_unit_top</Code>, then instantiate them into a parent <Code>top_module</Code>. Shared top inputs such as <Code>clk</Code>, <Code>is_load</Code>, or <Code>is_store</Code> are deduplicated when a sub-top block is instantiated.
+                </div>
+            </Section>
+        </div>
+    );
+
+    const renderFeatures = () => (
+        <div style={{ display: 'grid', gap: '12px' }}>
+            <InfoCard title="RTL-to-canvas import" badge="Parser" t={t}>
+                Parses ANSI and non-ANSI module ports, parameterized modules, nested parameter expressions, named instance connections, and incremental top-module uploads. Ordered port connections are detected but not fully converted to canvas edges.
+            </InfoCard>
+            <InfoCard title="Canvas-to-RTL generation" badge="Netlist" accent="#10b981" t={t}>
+                Generates structural Verilog from nodes, edges, exposed ports, tie-offs, auto-routed clock/reset ports, splitter/bundler routing, and hierarchical canvas instances.
+            </InfoCard>
+            <InfoCard title="VS Code-style RTL editor" badge="Editor" accent="#8b5cf6" t={t}>
+                Provides syntax highlighting, minimap, command palette, find/replace, go-to-line, formatting, line operations, autocomplete/snippets, status bar, and disabled font ligatures so operators like <Code>&lt;=</Code> and <Code>&gt;=</Code> render literally.
+            </InfoCard>
+            <InfoCard title="Auto layout" badge="Canvas" accent="#f59e0b" t={t}>
+                The layout engine spaces imported blocks to reduce overlap. Use fit view after import if blocks are outside the current viewport.
+            </InfoCard>
+            <InfoCard title="Trace and search" badge="Debug" accent="#06b6d4" t={t}>
+                Search finds blocks by name. Trace helps inspect fan-in/fan-out, floating inputs, unused outputs, and width mismatches.
+            </InfoCard>
+        </div>
+    );
+
+    const renderRules = () => (
+        <div style={{ display: 'grid', gap: '12px' }}>
+            <Section title="Warnings and indicators" t={t}>
+                <div style={{ display: 'grid', gridTemplateColumns: '18px 1fr', gap: '9px 10px', color: t.textSecondary, fontSize: '13px', lineHeight: 1.55 }}>
+                    <IconAlert color="#ef4444" size={14} />
+                    <span><strong style={{ color: t.textHeading }}>Floating input:</strong> input is not connected, exposed, auto-routed, or tied off.</span>
+                    <IconCircleSlash color="#9ca3af" size={14} />
+                    <span><strong style={{ color: t.textHeading }}>Unused output:</strong> output does not drive an edge and is not exposed as a top output.</span>
+                    <IconActivity color="#f59e0b" size={14} />
+                    <span><strong style={{ color: t.textHeading }}>Width mismatch:</strong> connected source and target port widths differ.</span>
+                    <IconZap color="#10b981" size={14} />
+                    <span><strong style={{ color: t.textHeading }}>Single input driver:</strong> each input handle accepts only one incoming wire.</span>
+                </div>
+            </Section>
+
+            <Section title="Connection rules" t={t}>
+                <ul style={{ margin: 0, paddingLeft: '18px', color: t.textSecondary, fontSize: '13px', lineHeight: 1.65 }}>
+                    <li>Canvas wires must go from output ports to input ports.</li>
+                    <li>One input port can have only one driver.</li>
+                    <li>Use a Splitter to break a wide bus into slices.</li>
+                    <li>Use a Bundler to combine narrower signals into a wider bus.</li>
+                    <li>Expose floating inputs/outputs to make them top-level module ports.</li>
+                    <li>Ports named <Code>clk</Code> and <Code>rst_n</Code> may be auto-routed to the generated top-level clock/reset.</li>
+                </ul>
+            </Section>
+
+            <Section title="Import limitations" t={t}>
+                <ul style={{ margin: 0, paddingLeft: '18px', color: t.textSecondary, fontSize: '13px', lineHeight: 1.65 }}>
+                    <li>Named instance mappings like <Code>.addr_bus(addr_bus)</Code> import best.</li>
+                    <li>Expressions and constants such as <Code>{`{27'b0, rs1}`}</Code> are preserved in RTL but are not converted into canvas edges.</li>
+                    <li>Parameterized port ranges may import as 1-bit if the width cannot be resolved numerically.</li>
+                    <li><Code>signed</Code> is preserved in stored RTL code, but canvas port metadata currently tracks width and direction, not signedness.</li>
+                    <li>External files referenced by <Code>$readmemh</Code> are not loaded or validated by the canvas.</li>
+                </ul>
+            </Section>
+        </div>
+    );
+
+    const renderShortcuts = () => (
+        <div style={{ display: 'grid', gap: '14px' }}>
+            <Section title="Canvas shortcuts" t={t}>
+                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '9px 14px', color: t.textSecondary, fontSize: '13px', alignItems: 'center' }}>
+                    <KbdRow combo="F" kbdStyle={kbdStyle}>Fit view to the canvas.</KbdRow>
+                    <KbdRow combo="Ctrl + F" kbdStyle={kbdStyle}>Open/focus the Search tab.</KbdRow>
+                    <KbdRow combo="H" kbdStyle={kbdStyle}>Open the Trace tab.</KbdRow>
+                    <KbdRow combo="Space" kbdStyle={kbdStyle}>Center the selected block.</KbdRow>
+                    <KbdRow combo="Ctrl + A" kbdStyle={kbdStyle}>Select all nodes and edges.</KbdRow>
+                    <KbdRow combo="Del" kbdStyle={kbdStyle}>Delete selected node or edge.</KbdRow>
+                    <KbdRow combo="Esc" kbdStyle={kbdStyle}>Clear selection and close transient UI.</KbdRow>
+                    <KbdRow combo="Ctrl + Z/Y" kbdStyle={kbdStyle}>Undo / redo.</KbdRow>
+                    <KbdRow combo="Ctrl + S" kbdStyle={kbdStyle}>Save/download the workspace.</KbdRow>
+                </div>
+            </Section>
+
+            <Section title="RTL editor shortcuts" t={t}>
+                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '9px 14px', color: t.textSecondary, fontSize: '13px', alignItems: 'center' }}>
+                    <KbdRow combo="Ctrl + S" kbdStyle={kbdStyle}>Save the active RTL file.</KbdRow>
+                    <KbdRow combo="Ctrl + F" kbdStyle={kbdStyle}>Find text.</KbdRow>
+                    <KbdRow combo="Ctrl + H" kbdStyle={kbdStyle}>Find and replace.</KbdRow>
+                    <KbdRow combo="Ctrl + G" kbdStyle={kbdStyle}>Go to line.</KbdRow>
+                    <KbdRow combo="Ctrl + Shift + P" kbdStyle={kbdStyle}>Open command palette.</KbdRow>
+                    <KbdRow combo="F1" kbdStyle={kbdStyle}>Open command palette.</KbdRow>
+                    <KbdRow combo="Alt + Shift + F" kbdStyle={kbdStyle}>Format Verilog.</KbdRow>
+                    <KbdRow combo="Alt + Z" kbdStyle={kbdStyle}>Toggle word wrap.</KbdRow>
+                    <KbdRow combo="Ctrl + /" kbdStyle={kbdStyle}>Toggle line comment.</KbdRow>
+                    <KbdRow combo="Alt + Up/Down" kbdStyle={kbdStyle}>Move current line.</KbdRow>
+                    <KbdRow combo="Shift + Alt + Down" kbdStyle={kbdStyle}>Duplicate current line.</KbdRow>
+                    <KbdRow combo="Ctrl + Shift + K" kbdStyle={kbdStyle}>Delete current line.</KbdRow>
+                    <KbdRow combo="Ctrl + L" kbdStyle={kbdStyle}>Select current line.</KbdRow>
+                </div>
+            </Section>
+        </div>
+    );
+
+    const renderTips = () => (
+        <div style={{ display: 'grid', gap: '12px' }}>
+            <InfoCard title="Best import order" accent="#10b981" t={t}>
+                You can import everything in one batch, or import leaf modules first and the top module later. If you upload the top later, keep the previously imported leaf RTL files in the project so the engine can use their real port directions.
+            </InfoCard>
+            <InfoCard title="Shared top inputs" accent="#8b5cf6" t={t}>
+                If two child modules both connect to the same top-level signal, expose both using the same external name. The generated top module and hierarchical block will show one deduplicated top port.
+            </InfoCard>
+            <InfoCard title="Expressions need explicit blocks" accent="#f59e0b" t={t}>
+                The importer does not convert complex expressions into canvas logic. For visual wiring, model expressions using explicit modules, splitters, bundlers, muxes, or tie-offs.
+            </InfoCard>
+            <InfoCard title="Use canvases as sub-top modules" accent="#06b6d4" t={t}>
+                Build one canvas per subsystem, save/promote it as a module, then instantiate it into a parent canvas. This keeps large designs easier to inspect and reuse.
+            </InfoCard>
+        </div>
+    );
+
     const renderContent = () => {
-        switch (activeTab) {
-            case 'shortcuts':
-                return (
-                    <div style={{ fontFamily: 'monospace' }}>
-                        <div
-                            style={{
-                                display: 'grid',
-                                gridTemplateColumns: '1fr 2fr',
-                                gap: '20px',
-                                fontSize: '18px',
-                            }}
-                        >
-                            <kbd style={kbdStyle}>F</kbd> <span>Fit view to canvas completely</span>
-                            <kbd style={kbdStyle}>Ctrl + F</kbd> <span>Focus Module Search bar</span>
-                            <kbd style={kbdStyle}>H</kbd> <span>Open Hierarchy & Net Trace</span>
-                            <kbd style={kbdStyle}>Esc</kbd> <span>Clear node/wire selection</span>
-                            <kbd style={kbdStyle}>Space</kbd> <span>Center selected block</span>
-                            <kbd style={kbdStyle}>Ctrl + A</kbd> <span>Select all modules & nets</span>
-                            <kbd style={kbdStyle}>Del</kbd> <span>Delete selected item</span>
-                            <kbd style={kbdStyle}>Ctrl + Z / Y</kbd> <span>Undo / Redo</span>
-                            <kbd style={kbdStyle}>Ctrl + S</kbd> <span>Save the design</span>
-                        </div>
-                    </div>
-                );
-
-            case 'rules': // Merged DRC Warnings + Architectural Rules
-                return (
-                    <div
-                        style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '16px',
-                            fontSize: '14px',
-                            fontFamily: '"monospace", system-ui, sans-serif',
-                            color: t.textSecondary,
-                            lineHeight: '1.5',
-                            padding: '4px',
-                            overflowY: 'auto',
-                            maxHeight: '100%'
-                        }}
-                    >
-                        {/* ---------- WARNINGS SECTION ---------- */}
-                        <div>
-                            <h3
-                                style={{
-                                    margin: '0 0 8px 0',
-                                    fontSize: '16px',
-                                    color: t.textHeading,
-                                    fontFamily: '"Ubuntu Sans", system-ui, sans-serif',
-                                    fontWeight: 600,
-                                    letterSpacing: '0.5px',
-                                    textTransform: 'uppercase'
-                                }}
-                            >
-                                DRC Status Flags & Indicators
-                            </h3>
-                            <div
-                                style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: '18px 1fr',
-                                    gap: '8px 10px',
-                                    alignItems: 'start',
-                                    fontFamily: '"monospace", system-ui, sans-serif',
-                                    background: t.bgSecondary,
-                                    border: `1px solid ${t.border}`,
-                                    borderRadius: '8px',
-                                    padding: '10px 12px',
-                                    fontSize: '14px'
-                                }}
-                            >
-                                <div style={{ marginTop: '2px' }}><IconAlert color="#ef4444" size={13} /></div>
-                                <span>
-                                    <strong style={{ color: t.textHeading }}>Floating Input:</strong> Input pin is entirely unconnected, un-routed, and lacks a static tie-off state value.
-                                </span>
-
-                                <div style={{ marginTop: '2px' }}><IconCircleSlash color="#9ca3af" size={13} /></div>
-                                <span>
-                                    <strong style={{ color: t.textMuted }}>Unused Output:</strong> Output pin is not driving any internal vector nets and has not been promoted to the top-level interface.
-                                </span>
-
-                                <div style={{ marginTop: '2px' }}><IconZap color="#10b981" size={13} /></div>
-                                <span>
-                                    <strong style={{ color: t.textHeading }}>Multiple Drivers:</strong> <span style={{ color: '#10b981', fontWeight: 600 }}>[RESOLVED]</span> Contention is actively prevented by the canvas gate keeper. Multiple source wires cannot force an input pin connection.
-                                </span>
-
-                                <div style={{ marginTop: '2px' }}><IconActivity color="#f59e0b" size={13} /></div>
-                                <span>
-                                    <strong style={{ color: t.textHeading }}>Width Mismatch:</strong> Bus width conflict detected between source driver vector handles and target load vector configurations.
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* ---------- RULES SECTION ---------- */}
-                        <div>
-                            <h3
-                                style={{
-                                    margin: '0 0 8px 0',
-                                    fontSize: '16px',
-                                    color: t.textHeading,
-                                    fontFamily: 'monospace',
-                                    fontWeight: 600,
-                                    letterSpacing: '0.5px',
-                                    textTransform: 'uppercase'
-                                }}
-                            >
-                                Architectural Schematic Rules
-                            </h3>
-
-                            <div
-                                style={{
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: '8px',
-                                }}
-                            >
-                                {/* Rule 1 */}
-                                <div
-                                    style={{
-                                        background: t.bgSecondary,
-                                        padding: '10px 12px',
-                                        borderRadius: '8px',
-                                        borderLeft: `3px solid ${t.primary || '#3b82f6'}`,
-                                        border: `1px solid ${t.border}`,
-                                        borderLeftWidth: '3px'
-                                    }}
-                                >
-                                    <strong style={{ color: t.textHeading, display: 'block', marginBottom: '3px', fontWeight: 700 }}>
-                                        1. Valid Interconnect Flow:
-                                    </strong>
-                                    Structural wiring vectors must strictly originate from an <strong style={{ color: t.textHeading }}>Output Port (Driver)</strong> and terminate at an <strong style={{ color: t.textHeading }}>Input Port (Load)</strong>. Bridging loads to loads or drivers to drivers directly on the grid is physically blocked.
-                                </div>
-
-                                {/* Rule 2 (NEWLY ADDED FEATURE SUB-SECTION) */}
-                                <div
-                                    style={{
-                                        background: t.bgSecondary,
-                                        padding: '10px 12px',
-                                        borderRadius: '8px',
-                                        borderLeft: `3px solid #6366f1`,
-                                        border: `1px solid ${t.border}`,
-                                        borderLeftWidth: '3px'
-                                    }}
-                                >
-                                    <strong style={{ color: t.textHeading, display: 'block', marginBottom: '3px', fontWeight: 700 }}>
-                                        2. Deterministic Sink Topology (Max 1 Load Wire):
-                                    </strong>
-                                    To guarantee clean synthesis compilation passes, each input port channel accepts a maximum of one incoming driver wire. If multi-source bus steering is required, designers must pass inputs through an explicit structural <code style={{ fontFamily: 'monospace', color: '#6366f1' }}>Bundler</code> or multiplexer grid cell.
-                                </div>
-
-                                {/* Rule 3 */}
-                                <div
-                                    style={{
-                                        background: t.bgSecondary,
-                                        padding: '10px 12px',
-                                        borderRadius: '8px',
-                                        borderLeft: `3px solid #f59e0b`,
-                                        border: `1px solid ${t.border}`,
-                                        borderLeftWidth: '3px'
-                                    }}
-                                >
-                                    <strong style={{ color: t.textHeading, display: 'block', marginBottom: '3px', fontWeight: 700 }}>
-                                        3. Mutual Exclusion (Boundary Promotion Sync):
-                                    </strong>
-                                    Only floating ports can hold top-level module promotions.
-                                    <ul style={{ margin: '6px 0 0 14px', padding: 0, color: t.textSecondary, display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                        <li>Routing a wire connection to an exposed top pin will <em style={{ color: t.textHeading }}>automatically demote</em> it back to an internal layout net structure.</li>
-                                        <li>Actively wired pins will have their top-level interface promotion checkboxes locked in the properties sidebar menu.</li>
-                                    </ul>
-                                </div>
-
-                                {/* Rule 4 */}
-                                <div
-                                    style={{
-                                        background: t.bgSecondary,
-                                        padding: '10px 12px',
-                                        borderRadius: '8px',
-                                        borderLeft: `3px solid #10b981`,
-                                        border: `1px solid ${t.border}`,
-                                        borderLeftWidth: '3px'
-                                    }}
-                                >
-                                    <strong style={{ color: t.textHeading, display: 'block', marginBottom: '3px', fontWeight: 700 }}>
-                                        4. High-Impedance Fallbacks & Tie-offs:
-                                    </strong>
-                                    Undriven and unpromoted input pins generate a compilation warning flag and map out to a high-impedance tri-state vector (<code style={{ fontFamily: 'monospace', color: '#10b981' }}>'bz</code>) in the structural flat Verilog output file. Use the properties configuration window to map explicit static constant logic values (<code style={{ fontFamily: 'monospace' }}>1'b0</code>, <code style={{ fontFamily: 'monospace' }}>1'b1</code>).
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                );
-
-            case 'features':
-                return (
-                    <div
-                        style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '14px',
-                            fontSize: '18px',
-                            color: t.textSecondary,
-                            lineHeight: '1.6',
-                            fontFamily: 'monospace',
-                            padding: '4px',
-                            fontWeight: 700,
-                            overflowY: 'auto',
-                            maxHeight: '100%',
-                        }}
-                    >
-                        <div style={{ color: t.textHeading, fontWeight: 600, fontSize: '16px', marginBottom: '2px' }}>
-                            Integrated Hardware Development Suite
-                        </div>
-                        <div style={{ color: t.textMuted, fontSize: '14px', marginTop: '-10px', marginBottom: '6px' }}>
-                            A visual workbench bridging structural netlist generation with real‑time RTL verification.
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            {/* Feature 1 */}
-                            <div
-                                style={{
-                                    background: t.bgSecondary,
-                                    border: `1px solid ${t.border}`,
-                                    borderRadius: '8px',
-                                    padding: '10px 12px',
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        marginBottom: '4px',
-                                    }}
-                                >
-                                    <span style={{ fontWeight: 700, color: t.textHeading, fontFamily: 'monospace' }}>
-                                        1. Sink‑Driven Net Topology
-                                    </span>
-                                    <span
-                                        style={{
-                                            fontSize: '9px',
-                                            fontWeight: 600,
-                                            color: '#10b981',
-                                            background: theme === 'dark' ? '#052e1c' : '#d1fae5',
-                                            padding: '1px 5px',
-                                            borderRadius: '4px',
-                                            textTransform: 'uppercase',
-                                        }}
-                                    >
-                                        Deterministic
-                                    </span>
-                                </div>
-                                <div style={{ fontSize: '15px', color: t.textSecondary }}>
-                                    Enforces a strict <code style={{ color: '#6366f1', fontFamily: 'monospace' }}> Max 1 Connection </code> rule
-                                    directly on target input pins to prevent dangerous hardware bus shorts. Automatically compiles clean,
-                                    trace‑syncable 1‑to‑1 point‑to‑point structural Verilog.
-                                </div>
-                            </div>
-
-                            {/* Feature 2 */}
-                            <div
-                                style={{
-                                    background: t.bgSecondary,
-                                    border: `1px solid ${t.border}`,
-                                    borderRadius: '8px',
-                                    padding: '10px 12px',
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        marginBottom: '4px',
-                                    }}
-                                >
-                                    <span style={{ fontWeight: 700, color: t.textHeading, fontFamily: 'monospace' }}>
-                                        2. Code‑to‑Schematic Interactive Sync
-                                    </span>
-                                    <span
-                                        style={{
-                                            fontSize: '9px',
-                                            fontWeight: 600,
-                                            color: '#3b82f6',
-                                            background: theme === 'dark' ? '#0f172a' : '#dbeafe',
-                                            padding: '1px 5px',
-                                            borderRadius: '4px',
-                                            textTransform: 'uppercase',
-                                        }}
-                                    >
-                                        Cross‑Domain
-                                    </span>
-                                </div>
-                                <div style={{ fontSize: '15px', color: t.textSecondary }}>
-                                    Click directly on structural instantiations or declared <code style={{ color: '#6366f1', fontFamily: 'monospace' }}>wire w_</code> elements inside the generated RTL code window to instantly center, snap zoom, and flash highlight the corresponding hardware block or interconnect edge on the canvas.
-                                </div>
-                            </div>
-
-                            {/* Feature 3 */}
-                            <div
-                                style={{
-                                    background: t.bgSecondary,
-                                    border: `1px solid ${t.border}`,
-                                    borderRadius: '8px',
-                                    padding: '10px 12px',
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        marginBottom: '4px',
-                                    }}
-                                >
-                                    <span style={{ fontWeight: 700, color: t.textHeading, fontFamily: 'monospace' }}>
-                                        3. Top Module I/O Port Dashboard
-                                    </span>
-                                    <span
-                                        style={{
-                                            fontSize: '9px',
-                                            fontWeight: 600,
-                                            color: '#f59e0b',
-                                            background: theme === 'dark' ? '#1c1000' : '#fef3c7',
-                                            padding: '1px 5px',
-                                            borderRadius: '4px',
-                                            textTransform: 'uppercase',
-                                        }}
-                                    >
-                                        Live Summary
-                                    </span>
-                                </div>
-                                <div style={{ fontSize: '15px', color: t.textSecondary }}>
-                                    Aggregates and tracks all top‑level promoted pin interfaces dynamically. Includes implicit tracking for
-                                    global infrastructure handles like system clocks (<code style={{ fontFamily: 'monospace' }}>clk</code>) and
-                                    asynchronous resets (<code style={{ fontFamily: 'monospace' }}>rst_n</code>) inside a dedicated,
-                                    filterable sidebar menu.
-                                </div>
-                            </div>
-
-                            {/* Feature 4 */}
-                            <div
-                                style={{
-                                    background: t.bgSecondary,
-                                    border: `1px solid ${t.border}`,
-                                    borderRadius: '8px',
-                                    padding: '10px 12px',
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        marginBottom: '4px',
-                                    }}
-                                >
-                                    <span style={{ fontWeight: 700, color: t.textHeading, fontFamily: 'monospace' }}>
-                                        4. Persistent Layout Session Engine
-                                    </span>
-                                    <span
-                                        style={{
-                                            fontSize: '9px',
-                                            fontWeight: 600,
-                                            color: '#ec4899',
-                                            background: theme === 'dark' ? '#2e121f' : '#fce7f3',
-                                            padding: '1px 5px',
-                                            borderRadius: '4px',
-                                            textTransform: 'uppercase',
-                                        }}
-                                    >
-                                        Stateful
-                                    </span>
-                                </div>
-                                <div style={{ fontSize: '15px', color: t.textSecondary }}>
-                                    Features compiler‑compliant local rehydration. Integrates an isolated frame‑pass architecture via browser
-                                    storage hooks to guarantee layout configurations, custom logic codes, and port interfaces remain safe
-                                    against sudden browser refreshes or accidental tab loss.
-                                </div>
-                            </div>
-                        </div>
-
-                        <div
-                            style={{
-                                marginTop: '6px',
-                                padding: '8px 10px',
-                                background: theme === 'dark' ? '#0b0f19' : '#eff6ff',
-                                border: `1px solid ${theme === 'dark' ? '#1e3a8a' : '#bfdbfe'}`,
-                                borderRadius: '6px',
-                                fontSize: '14px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                            }}
-                        >
-                            <span style={{ color: theme === 'dark' ? '#93c5fd' : '#1e40af' }}>
-                                💡 Pro‑Tip: Press <kbd style={{ padding: '2px 4px', background: t.bg, border: `1px solid ${t.border}`, borderRadius: '3px', fontSize: '10px', fontWeight: 'bold' }}>H</kbd> to jump straight into active netlist layout tracing.
-                            </span>
-                        </div>
-                    </div>
-                );
-
-            case 'tips':
-                return (
-                    <div
-                        style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '10px',
-                            fontWeight: '500',
-                            fontFamily: '"Ubuntu Sans", system-ui, sans-serif',
-                            fontSize: '17px',
-                            color: t.textSecondary,
-                            lineHeight: '1.5',
-                        }}
-                    >
-                        {/* Tip A */}
-                        <div
-                            style={{
-                                background: t.bg,
-                                padding: '10px 14px',
-                                borderRadius: '6px',
-                                border: `1px dashed ${t.borderStrong}`,
-                            }}
-                        >
-                            <span
-                                style={{
-                                    color: t.primary,
-                                    fontWeight: 700,
-                                    display: 'block',
-                                    marginBottom: '4px',
-                                }}
-                            >
-                                ⚘. Pattern A: Monitoring or Promoting an Internal Net
-                            </span>
-                            Since the engine strictly forbids promoting wired ports and enforces a single-wire rule per input target, you can tap into any internal signal pathway using a structural <strong>Buffer (`buff`)</strong> stage:
-                            <ol style={{ margin: '6px 0 0 16px', padding: 0 }}>
-                                <li>Disconnect the wire driving your target load input handle.</li>
-                                <li>
-                                    Route that source driver net directly into the input (<code>a</code>) of a new <code>buff</code> block.
-                                </li>
-                                <li>
-                                    Connect the buffer output (<code>y</code>) back to your original target load input.
-                                </li>
-                                <li>
-                                    To split or monitor this net without breaking the single-wire restriction, pass the signal through a <strong>Splitter/Bundler</strong> structure to distribute legal parallel point-to-point branches.
-                                </li>
-                            </ol>
-                        </div>
-
-                        {/* Tip B */}
-                        <div
-                            style={{
-                                background: t.bg,
-                                padding: '10px 14px',
-                                borderRadius: '6px',
-                                border: `1px dashed ${t.borderStrong}`,
-                            }}
-                        >
-                            <span
-                                style={{
-                                    color: '#10b981',
-                                    fontWeight: 700,
-                                    display: 'block',
-                                    marginBottom: '4px',
-                                }}
-                            >
-                                ⚘. Pattern B: Isolating Synchronous Clock Domains
-                            </span>
-                            When designing complex sequential circuits, avoid manual network daisy‑chaining for your clock tracks. Use the <strong>Global Domain Auto‑Routing</strong> checkboxes in the layout properties sidebar panel to automatically hook standard ports named <code>clk</code> or <code>rst_n</code> directly to the system root boundary, keeping your schematic clear of cross‑canvas routing lines.
-                        </div>
-
-                        {/* Tip C */}
-                        <div
-                            style={{
-                                background: t.bg,
-                                padding: '10px 14px',
-                                borderRadius: '6px',
-                                border: `1px dashed ${t.borderStrong}`,
-                            }}
-                        >
-                            <span
-                                style={{
-                                    color: '#f59e0b',
-                                    fontWeight: 700,
-                                    display: 'block',
-                                    marginBottom: '4px',
-                                }}
-                            >
-                                ⚘. Pattern C: Resolving Bus Width Mismatches
-                            </span>
-                            If your canvas triggers a yellow <code>Width Mismatch</code> alert on an active net path, it means your source driver and target load vector arrays do not match in size. Use an explicit structural <strong>Splitter</strong> cell to break down wider buses into exact sub-vector slices, or a <strong>Bundler</strong> to combine narrower tracks before connecting them to the destination.
-                        </div>
-                    </div>
-                );
-
-            default:
-                return null;
-        }
+        if (activeTab === 'workflow') return renderWorkflow();
+        if (activeTab === 'features') return renderFeatures();
+        if (activeTab === 'rules') return renderRules();
+        if (activeTab === 'shortcuts') return renderShortcuts();
+        return renderTips();
     };
+
+    const tabs = [
+        ['workflow', IconHelp, 'Workflow'],
+        ['features', IconFeatures, 'Features'],
+        ['rules', IconRules, 'Rules'],
+        ['shortcuts', IconKeyboard, 'Shortcuts'],
+        ['tips', IconLightbulb, 'Tips'],
+    ];
 
     return (
         <div
             style={{
                 position: 'fixed',
-                top: 0,
-                left: 0,
-                width: '100vw',
-                height: '100vh',
+                inset: 0,
                 background: 'rgba(0,0,0,0.6)',
                 zIndex: 9999,
                 display: 'flex',
@@ -589,53 +316,41 @@ const HelpModal = ({ showHelp, setShowHelp, theme, t, kbdStyle }) => {
         >
             <div
                 style={{
-                    borderRadius: "30px",
-                    padding: "24px",
-                    maxWidth: "1000px",
-                    width: "90%",
-                    height: "70%",
-                    display: "flex",
-                    flexDirection: "column",
+                    borderRadius: '18px',
+                    padding: '20px',
+                    maxWidth: '1040px',
+                    width: '90%',
+                    height: '76%',
+                    display: 'flex',
+                    flexDirection: 'column',
                     color: t.textHeading,
-                    boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
-                    
-                    // Gradient border fix
-                    border: "4px solid transparent",
-                    backgroundImage: `linear-gradient(${t.bgSecondary}, ${t.bgSecondary}), linear-gradient(90deg, #c1067d, #4800ff)`,
-                    backgroundOrigin: "border-box",
-                    backgroundClip: "padding-box, border-box",
+                    boxShadow: '0 16px 42px rgba(0,0,0,0.52)',
+                    border: `1px solid ${t.borderStrong || t.border}`,
+                    background: t.bgSecondary,
                 }}
             >
-
-                {/* Header */}
                 <div
                     style={{
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        marginBottom: '16px',
+                        marginBottom: '14px',
                         flexShrink: 0,
                     }}
                 >
-                    <h2
-                        style={{
-                            margin: 0,
-                            fontSize: '18px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                        }}
-                    >
-                        <IconHelp size={20} /> HELP
+                    <h2 style={{ margin: 0, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <IconHelp size={20} /> Axon Interlink Help
                     </h2>
                     <button
+                        type="button"
                         onClick={() => setShowHelp(false)}
                         style={{
                             background: 'transparent',
-                            border: 'none',
+                            border: `1px solid ${t.border}`,
+                            borderRadius: '8px',
                             color: t.textSecondary,
                             cursor: 'pointer',
-                            padding: '4px',
+                            padding: '5px',
                             display: 'flex',
                         }}
                     >
@@ -643,69 +358,29 @@ const HelpModal = ({ showHelp, setShowHelp, theme, t, kbdStyle }) => {
                     </button>
                 </div>
 
-                {/* Tab bar – now only 4 tabs */}
                 <div
                     style={{
                         display: 'flex',
                         gap: '8px',
                         flexWrap: 'wrap',
                         paddingBottom: '12px',
-                        marginBottom: '16px',
+                        marginBottom: '14px',
                         borderBottom: `1px solid ${t.border}`,
                         flexShrink: 0,
                     }}
                 >
-                    <button
-                        style={tabStyle('shortcuts')}
-                        onClick={() => setActiveTab('shortcuts')}
-                        onMouseEnter={(e) => {
-                            if (activeTab !== 'shortcuts') e.currentTarget.style.color = t.textHeading;
-                        }}
-                        onMouseLeave={(e) => {
-                            if (activeTab !== 'shortcuts') e.currentTarget.style.color = t.textSecondary;
-                        }}
-                    >
-                        <IconKeyboard /> Shortcuts
-                    </button>
-                    <button
-                        style={tabStyle('rules')}
-                        onClick={() => setActiveTab('rules')}
-                        onMouseEnter={(e) => {
-                            if (activeTab !== 'rules') e.currentTarget.style.color = t.textHeading;
-                        }}
-                        onMouseLeave={(e) => {
-                            if (activeTab !== 'rules') e.currentTarget.style.color = t.textSecondary;
-                        }}
-                    >
-                        <IconRules /> Warnings & Rules
-                    </button>
-                    <button
-                        style={tabStyle('features')}
-                        onClick={() => setActiveTab('features')}
-                        onMouseEnter={(e) => {
-                            if (activeTab !== 'features') e.currentTarget.style.color = t.textHeading;
-                        }}
-                        onMouseLeave={(e) => {
-                            if (activeTab !== 'features') e.currentTarget.style.color = t.textSecondary;
-                        }}
-                    >
-                        <IconFeatures /> Features
-                    </button>
-                    <button
-                        style={tabStyle('tips')}
-                        onClick={() => setActiveTab('tips')}
-                        onMouseEnter={(e) => {
-                            if (activeTab !== 'tips') e.currentTarget.style.color = t.textHeading;
-                        }}
-                        onMouseLeave={(e) => {
-                            if (activeTab !== 'tips') e.currentTarget.style.color = t.textSecondary;
-                        }}
-                    >
-                        <IconLightbulb /> Pro Tips
-                    </button>
+                    {tabs.map(([id, Icon, label]) => (
+                        <button
+                            key={id}
+                            type="button"
+                            style={tabStyle(id)}
+                            onClick={() => setActiveTab(id)}
+                        >
+                            <Icon /> {label}
+                        </button>
+                    ))}
                 </div>
 
-                {/* Content area */}
                 <div
                     style={{
                         flex: 1,

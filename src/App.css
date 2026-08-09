@@ -49,6 +49,16 @@
     }
 }
 
+@keyframes axonWireFlow {
+    from {
+        stroke-dashoffset: 18;
+    }
+
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
 /* Core glow layer */
 .net-glow-layer {
     filter: drop-shadow(0 0 50px currentColor);

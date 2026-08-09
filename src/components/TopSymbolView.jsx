@@ -57,11 +57,15 @@ const TopSymbolView = ({
         border: `1px solid ${colors.cardBorder}`,
         color: colors.textPrimary,
         cursor: 'pointer',
-        borderRadius: '4px',
-        padding: '4px 10px',
-        fontSize: '14px',
+        borderRadius: '8px',
+        width: '30px',
+        height: '30px',
+        padding: 0,
+        fontSize: '13px',
+        fontWeight: 700,
         fontFamily: 'monospace',
-        lineHeight: 1
+        lineHeight: 1,
+        transition: 'background 0.15s ease, border-color 0.15s ease',
     };
 
     const renderPort = (p, idx, color) => (
@@ -94,9 +98,9 @@ const TopSymbolView = ({
                             gap: '6px',
                             background: colors.cardBg,
                             border: `1px solid ${colors.cardBorder}`,
-                            borderRadius: '6px',
+                            borderRadius: '10px',
                             padding: '6px',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+                            boxShadow: 'none'
                         }}>
                             <button onClick={() => zoomIn()} style={buttonStyle}>+</button>
                             <button onClick={() => zoomOut()} style={buttonStyle}>-</button>
