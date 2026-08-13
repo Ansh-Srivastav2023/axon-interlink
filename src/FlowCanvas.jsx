@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { addEdge, useNodesState, useEdgesState, useReactFlow, reconnectEdge, ConnectionMode } from '@xyflow/react';
+import { addEdge, applyNodeChanges, useNodesState, useEdgesState, useReactFlow, reconnectEdge, ConnectionMode } from '@xyflow/react';
 
 import { ResizeHandle, SmartEdge, LeftPanel, Canvas, RightPanel } from './components';
 import { GateNode, HardwareNode, SplitterNode } from './nodes';
@@ -7,6 +7,14 @@ import { themes } from './styles';
 import getStyles from './styles/getStyles';
 import { STANDARD_LIBRARY, parsePorts, getPortLabel, getSmartSpawnPosition, validatePorts } from './utils/hardwareutils';
 import { sanitizeGraph } from './utils/graphValidation';
+import {
+    createDefaultSourceSlice,
+    createDefaultTargetSlice,
+    getEdgeEffectiveWidths,
+    getSourceSlice,
+    getTargetSlice,
+} from './utils/edgeSlices';
+import { hasExactIdentifierToken, parseInstantiationLine, parseWireDeclarationLine } from './utils/verilogNavigation';
 import { buildWorkspaceFromVerilogFiles, generateTestbenchFromModule, parseInstanceDeclarations, parseModuleDeclarations } from './utils/verilogImport';
 import {
     createCanvasInProject,
@@ -14,7 +22,7 @@ import {
     DEFAULT_TOP_MODULE_NAME,
     deleteCanvasFromProject,
     getCanvasModuleDefinition,
-    portsFromExposedPorts,
+    renameCanvasInProject,
     switchActiveCanvasInProject,
     workspacePayloadToFlatState,
 } from './utils/projectModel';
@@ -27,6 +35,12 @@ import { useFileOperations, useHistory } from './hooks';
 const edgeTypes = { smart: SmartEdge };
 const nodeTypes = { hardware: HardwareNode, gate: GateNode, splitter: SplitterNode };
 const GLOBAL_NET_NAMES = new Set(['clk', 'clock', 'rst', 'reset', 'rst_n', 'reset_n']);
+const PERFORMANCE_NODE_THRESHOLD = 180;
+const PERFORMANCE_EDGE_THRESHOLD = 450;
+const FLOW_ANIMATION_FOCUS_EDGE_THRESHOLD = 150;
+const ALIGNMENT_SNAP_THRESHOLD = 8;
+const DEFAULT_NODE_WIDTH = 270;
+const DEFAULT_NODE_HEIGHT = 150;
 const CLOCK_ALIASES = new Set(['clk', 'clock', 'i_clk', 'aclk', 'clk_i']);
 const RESET_ALIASES = new Set(['rst_n', 'reset_n', 'aresetn', 'i_rst_n', 'rst_ni', 'rst', 'reset', 'i_reset', 'areset', 'rst_i']);
 const MODULE_WIRE_COLORS = [
@@ -46,6 +60,58 @@ const MODULE_WIRE_COLORS = [
 
 const edgeNetName = (edge) => edge?.data?.importedNet || edge?.targetHandle || edge?.sourceHandle || '';
 const isGlobalNetEdge = (edge) => GLOBAL_NET_NAMES.has(String(edgeNetName(edge)).toLowerCase());
+const graphKey = (nodeId, handle) => `${nodeId}__${handle}`;
+
+const safeIdentifier = (value = 'inst') =>
+    String(value || 'inst')
+        .replace(/[^a-zA-Z0-9_]/g, '_')
+        .replace(/^[^a-zA-Z_]+/, 'u_') || 'inst';
+
+const makeUniqueName = (base, usedNames) => {
+    const cleanBase = safeIdentifier(base);
+    let candidate = cleanBase;
+    let suffix = 1;
+    while (usedNames.has(candidate)) {
+        candidate = `${cleanBase}_${suffix}`;
+        suffix += 1;
+    }
+    usedNames.add(candidate);
+    return candidate;
+};
+
+const getDeclaredModuleName = (code = '') => {
+    const match = String(code || '').match(/\bmodule\s+([a-zA-Z_][a-zA-Z0-9_$]*)/);
+    return match?.[1] ? safeIdentifier(match[1]) : null;
+};
+
+const repairNodeModuleAndInstanceNames = (currentNodes = [], currentCustomCodes = {}) => {
+    const usedInstanceNames = new Set();
+    let changed = false;
+
+    const repairedNodes = currentNodes.map((node) => {
+        if (!node?.data) return node;
+
+        const currentModuleName = node.data.moduleName;
+        const declaredModuleName = getDeclaredModuleName(currentCustomCodes[currentModuleName]);
+        const nextModuleName = declaredModuleName || currentModuleName;
+
+        const currentInstanceName = node.data.instanceName || `u_${nextModuleName || node.id}`;
+        const nextInstanceName = makeUniqueName(currentInstanceName, usedInstanceNames);
+
+        if (nextModuleName === currentModuleName && nextInstanceName === currentInstanceName) return node;
+        changed = true;
+        return {
+            ...node,
+            data: {
+                ...node.data,
+                moduleName: nextModuleName,
+                instanceName: nextInstanceName,
+            },
+        };
+    });
+
+    return changed ? repairedNodes : currentNodes;
+};
 const getDefaultAutoRouteSignal = (portName = '') => {
     const normalized = String(portName).toLowerCase();
     if (CLOCK_ALIASES.has(normalized)) return portName;
@@ -60,6 +126,25 @@ const getModuleWireColor = (moduleName = '') => {
         hash = ((hash << 5) - hash + key.charCodeAt(index)) | 0;
     }
     return MODULE_WIRE_COLORS[Math.abs(hash) % MODULE_WIRE_COLORS.length];
+};
+
+const getNodeLayoutBox = (node, positionOverride = null) => {
+    const portCount = Math.max(node?.data?.inputs?.length || 0, node?.data?.outputs?.length || 0);
+    const width = node?.measured?.width || node?.width || (node?.type === 'splitter' ? 45 : DEFAULT_NODE_WIDTH);
+    const height = node?.measured?.height || node?.height || Math.max(DEFAULT_NODE_HEIGHT, 92 + portCount * 25);
+    const position = positionOverride || node?.position || { x: 0, y: 0 };
+    const left = position.x || 0;
+    const top = position.y || 0;
+    return {
+        left,
+        right: left + width,
+        centerX: left + width / 2,
+        top,
+        bottom: top + height,
+        centerY: top + height / 2,
+        width,
+        height,
+    };
 };
 
 const shallowExposureFlagsEqual = (left = {}, right = {}) => {
@@ -172,14 +257,16 @@ export default function FlowCanvas() {
     // ============================================================
     // 3. NODES, EDGES, SELECTION & WARNINGS
     // ============================================================
-    const [nodes, setNodes, onNodesChange] = useNodesState([]);
+    const [nodes, setNodes, rawOnNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
     const [selectedNodeId, setSelectedNodeId] = useState(null);
     const [selectedEdgeId, setSelectedEdgeId] = useState(null);
     const [glowingNet, setGlowingNet] = useState(null);
+    const [alignmentGuides, setAlignmentGuides] = useState({ vertical: null, horizontal: null });
     const [wireViewMode, setWireViewMode] = useState('clean');
     const [colorWiresByModule, setColorWiresByModule] = useState(false);
     const [animateWireFlow, setAnimateWireFlow] = useState(false);
+    const performanceMode = nodes.length >= PERFORMANCE_NODE_THRESHOLD || edges.length >= PERFORMANCE_EDGE_THRESHOLD;
 
     const [customCodes, setCustomCodes] = useState({});
     const [exposedPorts, setExposedPorts] = useState({});
@@ -217,6 +304,7 @@ export default function FlowCanvas() {
     const [showSaveModal, setShowSaveModal] = useState(false);
     const [proposedFileName, setProposedFileName] = useState('');
     const [showClearModal, setShowClearModal] = useState(false);
+    const [deleteMode, setDeleteMode] = useState(false);
     const [modalTab, setModalTab] = useState('properties');
     const [modalPos, setModalPos] = useState({ x: 100, y: 100 });
     const dragStartRef = useRef(null);
@@ -366,6 +454,43 @@ export default function FlowCanvas() {
         }
     }, [recordHistory, setNodes, setEdges, setExposedPorts, setSelectedNodeId, setSelectedEdgeId, setGlowingNet]);
 
+    const deleteNodeById = useCallback(
+        (nodeId) => {
+            if (!nodeId) return;
+            recordHistory();
+            setNodes((nds) => nds.filter((node) => node.id !== nodeId));
+            setEdges((eds) => eds.filter((edge) => edge.source !== nodeId && edge.target !== nodeId));
+            setExposedPorts((prev) => {
+                const next = { ...prev };
+                Object.keys(next).forEach((key) => {
+                    if (next[key]?.nodeId === nodeId || key.startsWith(`${nodeId}__`)) {
+                        delete next[key];
+                    }
+                });
+                return next;
+            });
+            setSelectedNodeId(null);
+            setSelectedEdgeId(null);
+            setGlowingNet(null);
+            setTraceGlowingEdgeId(null);
+            setActiveModal({ type: null, id: null });
+        },
+        [recordHistory, setEdges, setExposedPorts, setNodes, setSelectedEdgeId, setSelectedNodeId]
+    );
+
+    const deleteEdgeById = useCallback(
+        (edgeId) => {
+            if (!edgeId) return;
+            recordHistory();
+            setEdges((eds) => eds.filter((edge) => edge.id !== edgeId));
+            setSelectedEdgeId(null);
+            setGlowingNet(null);
+            setTraceGlowingEdgeId(null);
+            setActiveModal({ type: null, id: null });
+        },
+        [recordHistory, setEdges, setSelectedEdgeId]
+    );
+
     useEffect(() => {
         const onKeyDown = (e) => {
             const target = e.target;
@@ -418,15 +543,71 @@ export default function FlowCanvas() {
     // ============================================================
     // 12. EDGE WARNINGS & BIT WIDTH INFERENCE
     // ============================================================
+    const graphIndex = useMemo(() => {
+        const nodeById = new Map();
+        const inputPortByHandle = new Map();
+        const outputPortByHandle = new Map();
+        const incomingEdgesByHandle = new Map();
+        const outgoingEdgesByHandle = new Map();
+        const incomingEdgesByNode = new Map();
+        const outgoingEdgesByNode = new Map();
+
+        nodes.forEach((node) => {
+            if (!node?.id) return;
+            nodeById.set(node.id, node);
+            (node.data?.inputs || []).forEach((port) => {
+                if (port?.name) inputPortByHandle.set(graphKey(node.id, port.name), port);
+            });
+            (node.data?.outputs || []).forEach((port) => {
+                if (port?.name) outputPortByHandle.set(graphKey(node.id, port.name), port);
+            });
+        });
+
+        edges.forEach((edge) => {
+            if (!edge) return;
+            const targetKey = graphKey(edge.target, edge.targetHandle);
+            const sourceKey = graphKey(edge.source, edge.sourceHandle);
+            if (!incomingEdgesByHandle.has(targetKey)) incomingEdgesByHandle.set(targetKey, []);
+            if (!outgoingEdgesByHandle.has(sourceKey)) outgoingEdgesByHandle.set(sourceKey, []);
+            if (!incomingEdgesByNode.has(edge.target)) incomingEdgesByNode.set(edge.target, []);
+            if (!outgoingEdgesByNode.has(edge.source)) outgoingEdgesByNode.set(edge.source, []);
+            incomingEdgesByHandle.get(targetKey).push(edge);
+            outgoingEdgesByHandle.get(sourceKey).push(edge);
+            incomingEdgesByNode.get(edge.target).push(edge);
+            outgoingEdgesByNode.get(edge.source).push(edge);
+        });
+
+        return {
+            nodeById,
+            inputPortByHandle,
+            outputPortByHandle,
+            incomingEdgesByHandle,
+            outgoingEdgesByHandle,
+            incomingEdgesByNode,
+            outgoingEdgesByNode,
+        };
+    }, [nodes, edges]);
+
     const checkEdgeWarnings = useCallback(
-        (edge, currentNodes) => {
-            const srcNode = currentNodes.find((n) => n.id === edge.source);
-            const tgtNode = currentNodes.find((n) => n.id === edge.target);
-            if (!srcNode || !tgtNode) return null;
-            const srcPort = (srcNode.data.outputs || []).find((p) => p.name === edge.sourceHandle);
-            const tgtPort = (tgtNode.data.inputs || []).find((p) => p.name === edge.targetHandle);
+        (edge, index) => {
+            const srcPort = index.outputPortByHandle.get(graphKey(edge.source, edge.sourceHandle));
+            const tgtPort = index.inputPortByHandle.get(graphKey(edge.target, edge.targetHandle));
             if (!srcPort || !tgtPort) return null;
-            if (srcPort.width !== tgtPort.width)
+            const sourceSlice = getSourceSlice(edge, srcPort);
+            const targetSlice = getTargetSlice(edge, tgtPort);
+            const { sourceWidth, targetWidth } = getEdgeEffectiveWidths(edge, srcPort, tgtPort);
+            if (edge.data?.sourceSlice && !sourceSlice) {
+                return `Invalid source slice on ${srcPort.name}. Slice must stay inside ${srcPort.width || 1} bits.`;
+            }
+            if (edge.data?.targetSlice && !targetSlice) {
+                return `Invalid target slice on ${tgtPort.name}. Slice must stay inside ${tgtPort.width || 1} bits.`;
+            }
+            if (sourceWidth !== targetWidth) {
+                const sourceLabel = sourceSlice ? `${srcPort.name}[${sourceSlice.msb}:${sourceSlice.lsb}]` : srcPort.name;
+                const targetLabel = targetSlice ? `${tgtPort.name}[${targetSlice.msb}:${targetSlice.lsb}]` : tgtPort.name;
+                return `Bit-width mismatch: ${sourceLabel}[${sourceWidth}b] -> ${targetLabel}[${targetWidth}b]`;
+            }
+            if (sourceWidth !== targetWidth)
                 return `Bit-width mismatch: ${srcPort.name}[${srcPort.width}b] → ${tgtPort.name}[${tgtPort.width}b]`;
             return null;
         },
@@ -435,20 +616,20 @@ export default function FlowCanvas() {
 
     const computedEdges = useMemo(() => {
         return edges.map((e) => {
-            const srcNode = nodes.find((n) => n.id === e.source);
-            const tgtNode = nodes.find((n) => n.id === e.target);
+            const srcNode = graphIndex.nodeById.get(e.source);
             const srcPort =
-                (srcNode?.data.outputs || []).find((p) => p.name === e.sourceHandle) ||
-                (srcNode?.data.inputs || []).find((p) => p.name === e.sourceHandle);
+                graphIndex.outputPortByHandle.get(graphKey(e.source, e.sourceHandle)) ||
+                graphIndex.inputPortByHandle.get(graphKey(e.source, e.sourceHandle));
             const tgtPort =
-                (tgtNode?.data.inputs || []).find((p) => p.name === e.targetHandle) ||
-                (tgtNode?.data.outputs || []).find((p) => p.name === e.targetHandle);
+                graphIndex.inputPortByHandle.get(graphKey(e.target, e.targetHandle)) ||
+                graphIndex.outputPortByHandle.get(graphKey(e.target, e.targetHandle));
             const sourceWidth = srcPort?.width || 1;
             const targetWidth = tgtPort?.width || 1;
-            const nativeWidth = e.data?.manualBitWidth ? e.data?.bitWidth || sourceWidth : sourceWidth;
-            const allowedMaxWidth = Math.min(sourceWidth, targetWidth);
+            const edgeWidths = getEdgeEffectiveWidths(e, srcPort, tgtPort);
+            const nativeWidth = e.data?.manualBitWidth ? e.data?.bitWidth || sourceWidth : edgeWidths.sourceWidth;
+            const allowedMaxWidth = Math.min(edgeWidths.sourceWidth, edgeWidths.targetWidth);
             const configuredWidth = Math.min(nativeWidth, allowedMaxWidth);
-            const warning = checkEdgeWarnings(e, nodes);
+            const warning = checkEdgeWarnings(e, graphIndex);
             const routeOffset = 22 + (Math.abs(String(e.id || '').split('').reduce((sum, char) => sum + char.charCodeAt(0), 0)) % 5) * 10;
             const sourceModuleName = srcNode?.data?.moduleName || srcNode?.data?.instanceName || e.source;
             return {
@@ -458,18 +639,23 @@ export default function FlowCanvas() {
                     ...e.data,
                     warning,
                     bitWidth: Math.max(1, configuredWidth),
+                    sourcePortWidth: sourceWidth,
+                    targetPortWidth: targetWidth,
+                    sourcePortName: srcPort?.name || e.sourceHandle,
+                    targetPortName: tgtPort?.name || e.targetHandle,
                     routeOffset,
                     sourceModuleName,
                     sourceModuleColor: colorWiresByModule ? getModuleWireColor(sourceModuleName) : undefined,
-                    animateFlow: animateWireFlow,
+                    animateFlow: false,
                 },
             };
         });
-    }, [edges, nodes, checkEdgeWarnings, colorWiresByModule, animateWireFlow]);
+    }, [edges, graphIndex, checkEdgeWarnings, colorWiresByModule]);
 
     const displayEdges = useMemo(() => {
         const focusNodeId = selectedNodeId;
         const focusEdgeId = selectedEdgeId;
+        const limitAnimationToFocus = performanceMode || computedEdges.length > FLOW_ANIMATION_FOCUS_EDGE_THRESHOLD;
 
         return computedEdges
             .filter((edge) => {
@@ -488,9 +674,14 @@ export default function FlowCanvas() {
                     edge.data?.isGlowing ||
                     edge.data?.isFlashing;
                 const shouldDim = wireViewMode === 'focus' && (focusNodeId || focusEdgeId) && !isFocused;
-                return { ...edge, data: { ...edge.data, isDimmed: shouldDim } };
+                const shouldAnimateFlow = animateWireFlow && (!limitAnimationToFocus || isFocused);
+                return {
+                    ...edge,
+                    selected: Boolean(edge.selected || (focusEdgeId && edge.id === focusEdgeId)),
+                    data: { ...edge.data, isDimmed: shouldDim, animateFlow: shouldAnimateFlow },
+                };
             });
-    }, [computedEdges, selectedEdgeId, selectedNodeId, wireViewMode]);
+    }, [animateWireFlow, computedEdges, performanceMode, selectedEdgeId, selectedNodeId, wireViewMode]);
 
     const wireStats = useMemo(
         () => ({
@@ -526,6 +717,20 @@ export default function FlowCanvas() {
         setNodes((currentNodes) => syncNodeExposureFlags(currentNodes, exposedPorts));
     }, [exposedPorts, setNodes]);
 
+    useEffect(() => {
+        const repairedNodes = repairNodeModuleAndInstanceNames(nodes, customCodes);
+        if (repairedNodes === nodes) return undefined;
+        let cancelled = false;
+        queueMicrotask(() => {
+            if (!cancelled) {
+                setNodes((currentNodes) => repairNodeModuleAndInstanceNames(currentNodes, customCodes));
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [nodes, customCodes, setNodes]);
+
     // ============================================================
     // 13. DYNAMIC SPLITTER / BUNDLER AUTO‑INFERENCE
     // ============================================================
@@ -536,14 +741,15 @@ export default function FlowCanvas() {
 
             if (node.data.isSplitter) {
                 if (node.data._manualOverride) return node;
-                const inputEdge = edges.find((e) => e.target === node.id);
+                const inputPortName = (node.data.inputs || [])[0]?.name || 'bus_in';
+                const inputEdge = graphIndex.incomingEdgesByHandle.get(graphKey(node.id, inputPortName))?.[0];
                 let inferredInWidth = (node.data.outputs || []).reduce((sum, p) => sum + (p.width || 1), 0) || 1;
                 if (inputEdge) {
-                    const srcNode = nodes.find((n) => n.id === inputEdge.source);
+                    const srcNode = graphIndex.nodeById.get(inputEdge.source);
                     const srcPort = srcNode?.data.outputs?.find((p) => p.name === inputEdge.sourceHandle);
                     if (srcPort) inferredInWidth = srcPort.width;
                 }
-                const connectedOutEdges = edges.filter((e) => e.source === node.id);
+                const connectedOutEdges = graphIndex.outgoingEdgesByNode.get(node.id) || [];
                 let dynamicOutputs = [];
                 if (connectedOutEdges.length === 0) {
                     dynamicOutputs =
@@ -561,7 +767,7 @@ export default function FlowCanvas() {
                         const wiresForThisHandle = connectedOutEdges.filter((e) => e.sourceHandle === handleName);
                         if (wiresForThisHandle.length > 0) {
                             const firstEdge = wiresForThisHandle[0];
-                            const tgtNode = nodes.find((n) => n.id === firstEdge.target);
+                            const tgtNode = graphIndex.nodeById.get(firstEdge.target);
                             const tgtPort = tgtNode?.data.inputs?.find((p) => p.name === firstEdge.targetHandle);
                             const sliceWidth = tgtPort ? tgtPort.width : 1;
                             const lsb = Math.min(currentLsb, Math.max(0, inferredInWidth - 1));
@@ -628,7 +834,7 @@ export default function FlowCanvas() {
         if (nodesChanged) {
             setNodes(updatedNodes);
         }
-    }, [edges, setNodes, nodes]);
+    }, [graphIndex, setNodes, nodes]);
 
     // ============================================================
     // 14. GLOW EFFECT (FOR EDGES)
@@ -655,15 +861,148 @@ export default function FlowCanvas() {
     // ============================================================
     // 15. CANVAS INTERACTIONS (CONNECT, CLICK, RECONNECT)
     // ============================================================
+    const onNodesChange = useCallback(
+        (changes) => {
+            const positionChange = changes.find((change) => change.type === 'position' && change.dragging && change.position);
+            if (!positionChange) {
+                setAlignmentGuides({ vertical: null, horizontal: null });
+                rawOnNodesChange(changes);
+                return;
+            }
+
+            const movingNode = nodes.find((node) => node.id === positionChange.id);
+            if (!movingNode) {
+                rawOnNodesChange(changes);
+                return;
+            }
+
+            const movingBox = getNodeLayoutBox(movingNode, positionChange.position);
+            let bestVertical = null;
+            let bestHorizontal = null;
+
+            const testVertical = (movingAnchor, referenceAnchor, referenceNode) => {
+                const distance = Math.abs(movingAnchor.value - referenceAnchor.value);
+                if (distance > ALIGNMENT_SNAP_THRESHOLD) return;
+                if (bestVertical && distance >= bestVertical.distance) return;
+                bestVertical = {
+                    distance,
+                    dx: referenceAnchor.value - movingAnchor.value,
+                    x: referenceAnchor.value,
+                    y1: Math.min(movingBox.top, referenceNode.top),
+                    y2: Math.max(movingBox.bottom, referenceNode.bottom),
+                };
+            };
+
+            const testHorizontal = (movingAnchor, referenceAnchor, referenceNode) => {
+                const distance = Math.abs(movingAnchor.value - referenceAnchor.value);
+                if (distance > ALIGNMENT_SNAP_THRESHOLD) return;
+                if (bestHorizontal && distance >= bestHorizontal.distance) return;
+                bestHorizontal = {
+                    distance,
+                    dy: referenceAnchor.value - movingAnchor.value,
+                    y: referenceAnchor.value,
+                    x1: Math.min(movingBox.left, referenceNode.left),
+                    x2: Math.max(movingBox.right, referenceNode.right),
+                };
+            };
+
+            nodes.forEach((node) => {
+                if (node.id === movingNode.id) return;
+                const referenceBox = getNodeLayoutBox(node);
+                const movingVerticalAnchors = [
+                    { name: 'left', value: movingBox.left },
+                    { name: 'center', value: movingBox.centerX },
+                    { name: 'right', value: movingBox.right },
+                ];
+                const referenceVerticalAnchors = [
+                    { name: 'left', value: referenceBox.left },
+                    { name: 'center', value: referenceBox.centerX },
+                    { name: 'right', value: referenceBox.right },
+                ];
+                const movingHorizontalAnchors = [
+                    { name: 'top', value: movingBox.top },
+                    { name: 'middle', value: movingBox.centerY },
+                    { name: 'bottom', value: movingBox.bottom },
+                ];
+                const referenceHorizontalAnchors = [
+                    { name: 'top', value: referenceBox.top },
+                    { name: 'middle', value: referenceBox.centerY },
+                    { name: 'bottom', value: referenceBox.bottom },
+                ];
+
+                movingVerticalAnchors.forEach((movingAnchor) =>
+                    referenceVerticalAnchors.forEach((referenceAnchor) =>
+                        testVertical(movingAnchor, referenceAnchor, referenceBox)
+                    )
+                );
+                movingHorizontalAnchors.forEach((movingAnchor) =>
+                    referenceHorizontalAnchors.forEach((referenceAnchor) =>
+                        testHorizontal(movingAnchor, referenceAnchor, referenceBox)
+                    )
+                );
+            });
+
+            const snappedPosition = {
+                x: positionChange.position.x + (bestVertical?.dx || 0),
+                y: positionChange.position.y + (bestHorizontal?.dy || 0),
+            };
+
+            const snappedChanges = changes.map((change) =>
+                change.id === positionChange.id && change.type === 'position'
+                    ? { ...change, position: snappedPosition }
+                    : change
+            );
+
+            setAlignmentGuides({
+                vertical: bestVertical ? { x: bestVertical.x, y1: bestVertical.y1, y2: bestVertical.y2 } : null,
+                horizontal: bestHorizontal ? { y: bestHorizontal.y, x1: bestHorizontal.x1, x2: bestHorizontal.x2 } : null,
+            });
+            setNodes((currentNodes) => applyNodeChanges(snappedChanges, currentNodes));
+        },
+        [nodes, rawOnNodesChange, setNodes]
+    );
+
+    const handleNodeDragStop = useCallback(() => {
+        setAlignmentGuides({ vertical: null, horizontal: null });
+        recordHistory();
+    }, [recordHistory]);
+
     const isValidConnection = useCallback(
         (connection) => {
-            const isTargetAlreadyWired = edges.some(
-                (e) => e.target === connection.target && e.targetHandle === connection.targetHandle
+            let sourceNode = nodes.find((n) => n.id === connection.source);
+            let targetNode = nodes.find((n) => n.id === connection.target);
+            let sourceHandle = connection.sourceHandle;
+            let targetHandle = connection.targetHandle;
+
+            const isSourceOutput = (sourceNode?.data.outputs || []).some((p) => p.name === sourceHandle);
+            const isTargetInput = (targetNode?.data.inputs || []).some((p) => p.name === targetHandle);
+            if (!isSourceOutput || !isTargetInput) {
+                const isSourceInput = (sourceNode?.data.inputs || []).some((p) => p.name === sourceHandle);
+                const isTargetOutput = (targetNode?.data.outputs || []).some((p) => p.name === targetHandle);
+                if (!isSourceInput || !isTargetOutput) return false;
+                [sourceNode, targetNode] = [targetNode, sourceNode];
+                [sourceHandle, targetHandle] = [targetHandle, sourceHandle];
+            }
+
+            const srcPort = (sourceNode?.data.outputs || []).find((p) => p.name === sourceHandle);
+            const tgtPort = (targetNode?.data.inputs || []).find((p) => p.name === targetHandle);
+            if (!srcPort || !tgtPort) return false;
+
+            const existingTargetEdges = edges.filter(
+                (e) => e.target === targetNode.id && e.targetHandle === targetHandle
             );
-            if (isTargetAlreadyWired) return false;
+            if (existingTargetEdges.length === 0) return true;
+            if ((tgtPort.width || 1) > 1) return true;
+
+            const occupiedSlices = existingTargetEdges.map((edge) => getTargetSlice(edge, tgtPort));
+            if (occupiedSlices.some((slice) => !slice)) return false;
+
+            const nextSlice = createDefaultTargetSlice(srcPort.width, tgtPort.width, occupiedSlices);
+            if (!nextSlice) return false;
+
             return true;
         },
-        [edges]
+        [edges, nodes]
     );
 
     const onConnect = useCallback(
@@ -713,16 +1052,29 @@ export default function FlowCanvas() {
                     return n;
                 })
             );
-            const portWidth = Math.min(finalSrcPort.width, finalTgtPort.width);
+            const existingTargetEdges = edges.filter(
+                (edge) => edge.target === normParams.target && edge.targetHandle === normParams.targetHandle
+            );
+            if (existingTargetEdges.length > 0 && (finalTgtPort.width || 1) <= 1) {
+                console.warn('Scalar input already has a driver.');
+                return;
+            }
+            const existingTargetSlices = existingTargetEdges.map((edge) => getTargetSlice(edge, finalTgtPort)).filter(Boolean);
+            const sourceSlice = createDefaultSourceSlice(finalSrcPort.width, finalTgtPort.width);
+            const targetSlice = createDefaultTargetSlice(finalSrcPort.width, finalTgtPort.width, existingTargetSlices);
+            const sourceEffectiveWidth = sourceSlice ? sourceSlice.msb - sourceSlice.lsb + 1 : finalSrcPort.width;
+            const targetEffectiveWidth = targetSlice ? targetSlice.msb - targetSlice.lsb + 1 : finalTgtPort.width;
+            const portWidth = Math.min(sourceEffectiveWidth, targetEffectiveWidth);
+            const edgeBaseId = `e-${normParams.source}-${normParams.sourceHandle}-${normParams.target}-${normParams.targetHandle}`;
             const newEdge = {
                 ...normParams,
-                id: `e-${normParams.source}-${normParams.sourceHandle}-${normParams.target}-${normParams.targetHandle}`,
+                id: edges.some((edge) => edge.id === edgeBaseId) ? `${edgeBaseId}-${Date.now()}` : edgeBaseId,
                 type: 'smart',
-                data: { bitWidth: portWidth, manualBitWidth: false },
+                data: { bitWidth: portWidth, manualBitWidth: false, sourceSlice, targetSlice },
             };
             setEdges((eds) => addEdge(newEdge, eds));
         },
-        [nodes, setNodes, setEdges, recordHistory]
+        [edges, nodes, setNodes, setEdges, recordHistory]
     );
 
     const onReconnect = useCallback(
@@ -736,12 +1088,18 @@ export default function FlowCanvas() {
     const onNodeClick = useCallback(
         (event, node) => {
             if (event.target?.closest?.('.react-flow__handle')) return;
+            if (deleteMode) {
+                event.stopPropagation();
+                deleteNodeById(node.id);
+                return;
+            }
             setSelectedNodeId(node.id);
             setSelectedEdgeId(null);
             setGlowingNet(null);
             setTraceGlowingEdgeId(null);
+            setEdges((eds) => eds.map((e) => (e.selected ? { ...e, selected: false } : e)));
         },
-        [setSelectedNodeId, setSelectedEdgeId]
+        [deleteMode, deleteNodeById, setEdges, setSelectedNodeId, setSelectedEdgeId]
     );
 
     const openNodeConfigModal = useCallback((nodeId, clientX = window.innerWidth / 2, clientY = window.innerHeight / 2) => {
@@ -772,19 +1130,20 @@ export default function FlowCanvas() {
 
     const onEdgeClick = useCallback(
         (event, edge) => {
+            event.stopPropagation();
+            if (deleteMode) {
+                deleteEdgeById(edge.id);
+                return;
+            }
             setSelectedEdgeId(edge.id);
             setSelectedNodeId(null);
-            setTraceGlowingEdgeId(null);
-            setGlowingNet({ source: edge.source, sourceHandle: edge.sourceHandle });
-            setModalTab('properties');
-            setActiveModal({ type: 'edge', id: edge.id });
-            const modalWidth = 380;
-            const modalHeight = 420;
-            const x = Math.max(10, Math.min(event.clientX - 180, window.innerWidth - modalWidth - 10));
-            const y = Math.max(10, Math.min(event.clientY - 80, window.innerHeight - modalHeight - 10));
-            setModalPos({ x, y });
+            setTraceGlowingEdgeId(edge.id);
+            setGlowingNet(null);
+            setActiveModal({ type: null, id: null });
+            setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)));
+            setEdges((eds) => eds.map((e) => ({ ...e, selected: e.id === edge.id })));
         },
-        [setSelectedEdgeId, setSelectedNodeId]
+        [deleteEdgeById, deleteMode, setEdges, setNodes, setSelectedEdgeId, setSelectedNodeId]
     );
 
     const onPaneClick = useCallback(
@@ -794,8 +1153,9 @@ export default function FlowCanvas() {
             setSelectedEdgeId(null);
             setGlowingNet(null);
             setTraceGlowingEdgeId(null);
+            setEdges((eds) => eds.map((e) => (e.selected ? { ...e, selected: false } : e)));
         },
-        [setSelectedNodeId, setSelectedEdgeId]
+        [setEdges, setSelectedNodeId, setSelectedEdgeId]
     );
 
     // ============================================================
@@ -970,26 +1330,47 @@ export default function FlowCanvas() {
 
     // Debounced structural Verilog generation to avoid blocking UI during edits
     const [debouncedVerilog, setDebouncedVerilog] = useState('');
+    const [generatedCodeDirty, setGeneratedCodeDirty] = useState(false);
     const verilogTimerRef = useRef(null);
+    const hasGeneratedVerilogRef = useRef(false);
+
+    const generateTopModuleVerilog = useCallback(() => generateStructuralVerilog({
+        moduleName: activeTopModuleName,
+        nodes,
+        edges,
+        customCodes,
+        exposedPorts,
+    }), [activeTopModuleName, nodes, edges, customCodes, exposedPorts]);
+
+    const refreshGeneratedCode = useCallback(() => {
+        const nextCode = generateTopModuleVerilog();
+        hasGeneratedVerilogRef.current = true;
+        setDebouncedVerilog(nextCode);
+        setGeneratedCodeDirty(false);
+        return nextCode;
+    }, [generateTopModuleVerilog]);
 
     useEffect(() => {
-        // Clear previous timer
         if (verilogTimerRef.current) clearTimeout(verilogTimerRef.current);
-        // Schedule generation after 300ms idle
-        verilogTimerRef.current = setTimeout(() => {
-            setDebouncedVerilog(generateStructuralVerilog({
-                moduleName: activeTopModuleName,
-                nodes,
-                edges,
-                customCodes,
-                exposedPorts,
-            }));
-        }, 300);
+
+        let cancelled = false;
+        queueMicrotask(() => {
+            if (!cancelled) setGeneratedCodeDirty(true);
+        });
+        const codePanelVisible = !rightCollapsed && topViewMode === 'code';
+        const shouldRefreshNow = !performanceMode || codePanelVisible || !hasGeneratedVerilogRef.current;
+
+        if (shouldRefreshNow) {
+            verilogTimerRef.current = setTimeout(() => {
+                refreshGeneratedCode();
+            }, performanceMode ? 1000 : 300);
+        }
 
         return () => {
+            cancelled = true;
             if (verilogTimerRef.current) clearTimeout(verilogTimerRef.current);
         };
-    }, [nodes, edges, customCodes, exposedPorts, activeTopModuleName]);
+    }, [refreshGeneratedCode, performanceMode, rightCollapsed, topViewMode]);
 
     const structuralVerilogFull = debouncedVerilog;
 
@@ -1114,11 +1495,15 @@ module ${activeTopModuleName}_tb();
     }, [activeTopModuleName, exposedPorts, nodes, uploadedTopTestbenchCode]);
 
     const handleCopyCode = useCallback(() => {
-        const codeToCopy = topViewMode === 'testbench' ? testbenchCodeFull : structuralVerilogFull;
+        const codeToCopy = topViewMode === 'testbench'
+            ? testbenchCodeFull
+            : generatedCodeDirty
+                ? refreshGeneratedCode()
+                : structuralVerilogFull;
         navigator.clipboard.writeText(codeToCopy);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
-    }, [topViewMode, testbenchCodeFull, structuralVerilogFull]);
+    }, [generatedCodeDirty, refreshGeneratedCode, topViewMode, testbenchCodeFull, structuralVerilogFull]);
 
     // ============================================================
     // 19. FILE OPERATIONS (SAVE / LOAD)
@@ -1160,15 +1545,44 @@ module ${activeTopModuleName}_tb();
     }, []);
 
     const applyImportedVerilogFiles = useCallback(
-        async (fileList, targetTab = 'project', importMode = 'merge') => {
+        async (fileList, targetTab = 'project', importMode = 'merge', targetCanvasId = null) => {
             try {
                 const filePayloads = await readUploadedVerilogFiles(fileList);
                 if (filePayloads.length === 0) return;
 
+                let workingProject = createWorkspacePayload({
+                    nodes,
+                    edges,
+                    customCodes,
+                    exposedPorts,
+                    theme,
+                    previousProject: projectModel,
+                }).project;
+                let baseNodes = nodes;
+                let baseEdges = edges;
+                let baseCustomCodes = customCodes;
+                let baseExposedPorts = exposedPorts;
+                const importCanvasId = targetCanvasId && workingProject.canvases?.[targetCanvasId]
+                    ? targetCanvasId
+                    : workingProject.activeCanvasId;
+
+                if (importCanvasId && importCanvasId !== workingProject.activeCanvasId) {
+                    const switched = switchActiveCanvasInProject(workingProject, importCanvasId, {
+                        nodes,
+                        edges,
+                        exposedPorts,
+                        theme,
+                    });
+                    workingProject = switched.project;
+                    baseNodes = switched.state.nodes || [];
+                    baseEdges = switched.state.edges || [];
+                    baseExposedPorts = switched.state.exposedPorts || {};
+                }
+
                 const shouldReplaceCanvas = importMode === 'replace';
                 if (
                     shouldReplaceCanvas &&
-                    (nodes.length > 0 || edges.length > 0) &&
+                    (baseNodes.length > 0 || baseEdges.length > 0) &&
                     !window.confirm('Importing top RTL will replace the current canvas. Continue?')
                 ) {
                     return;
@@ -1178,8 +1592,8 @@ module ${activeTopModuleName}_tb();
                 const uploadedModuleNames = new Set(uploadedParsedModules.map((moduleDef) => moduleDef.name));
                 const knownModuleNames = new Set([
                     ...uploadedParsedModules.map((moduleDef) => moduleDef.name),
-                    ...nodes.map((node) => node.data?.moduleName).filter(Boolean),
-                    ...Object.keys(customCodes || {}),
+                    ...baseNodes.map((node) => node.data?.moduleName).filter(Boolean),
+                    ...Object.keys(baseCustomCodes || {}),
                 ]);
                 const uploadedStructuralCandidates = uploadedParsedModules.filter(
                     (moduleDef) => parseInstanceDeclarations(moduleDef.body, Array.from(knownModuleNames)).length > 0
@@ -1204,7 +1618,7 @@ module ${activeTopModuleName}_tb();
                 }
                 const existingModulePayloads =
                     !shouldReplaceCanvas && uploadedTopModuleName
-                        ? Object.entries(customCodes || {})
+                        ? Object.entries(baseCustomCodes || {})
                             .filter(([moduleName, code]) => moduleName && !uploadedModuleNames.has(moduleName) && typeof code === 'string' && code.trim())
                             .map(([moduleName, code]) => ({
                                 name: `existing_${moduleName}.v`,
@@ -1233,16 +1647,21 @@ module ${activeTopModuleName}_tb();
                     uploadedParsedModules[0];
 
                 recordHistory();
+                let nextNodes = imported.nodes;
+                let nextEdges = imported.edges;
+                let nextCustomCodes = imported.customCodes;
+                let nextExposedPorts = imported.exposedPorts;
+
                 if (shouldReplaceCanvas) {
-                    setNodes(imported.nodes);
-                    setEdges(imported.edges);
-                    setCustomCodes(imported.customCodes);
-                    setExposedPorts(imported.exposedPorts);
+                    nextNodes = imported.nodes;
+                    nextEdges = imported.edges;
+                    nextCustomCodes = imported.customCodes;
+                    nextExposedPorts = imported.exposedPorts;
                 } else {
-                    const existingNodeIds = new Set(nodes.map((node) => node.id));
-                    const existingInstanceNames = new Set(nodes.map((node) => node.data?.instanceName).filter(Boolean));
+                    const existingNodeIds = new Set(baseNodes.map((node) => node.id));
+                    const existingInstanceNames = new Set(baseNodes.map((node) => node.data?.instanceName).filter(Boolean));
                     const existingNodesByModuleName = new Map();
-                    nodes.forEach((node) => {
+                    baseNodes.forEach((node) => {
                         const moduleName = node.data?.moduleName;
                         if (!moduleName || node.data?.isSplitter || node.data?.isBundler) return;
                         if (!existingNodesByModuleName.has(moduleName)) existingNodesByModuleName.set(moduleName, []);
@@ -1284,8 +1703,8 @@ module ${activeTopModuleName}_tb();
                             ...node,
                             id: nextId,
                             position: {
-                                x: node.position.x + nodes.length * 8,
-                                y: node.position.y + nodes.length * 8,
+                                x: node.position.x + baseNodes.length * 8,
+                                y: node.position.y + baseNodes.length * 8,
                             },
                             data: {
                                 ...node.data,
@@ -1314,8 +1733,8 @@ module ${activeTopModuleName}_tb();
                         };
                     });
 
-                    setNodes((currentNodes) => [
-                        ...currentNodes.map((node) => {
+                    nextNodes = [
+                        ...baseNodes.map((node) => {
                             const moduleDef = moduleDefsByName.get(node.data?.moduleName);
                             if (!moduleDef) return node;
                             if (moduleDef.fileName === 'inferred') return node;
@@ -1330,31 +1749,42 @@ module ${activeTopModuleName}_tb();
                             };
                         }),
                         ...newNodes,
-                    ]);
-                    setEdges((currentEdges) => {
-                        const existingEdgeKeys = new Set(
-                            currentEdges.map((edge) => `${edge.source}|${edge.sourceHandle}|${edge.target}|${edge.targetHandle}`)
-                        );
-                        const uniqueImportedEdges = nextImportedEdges.filter((edge) => {
-                            const key = `${edge.source}|${edge.sourceHandle}|${edge.target}|${edge.targetHandle}`;
-                            if (existingEdgeKeys.has(key)) return false;
-                            existingEdgeKeys.add(key);
-                            return true;
-                        });
-                        return [...currentEdges, ...uniqueImportedEdges];
+                    ];
+
+                    const existingEdgeKeys = new Set(
+                        baseEdges.map((edge) => `${edge.source}|${edge.sourceHandle}|${edge.target}|${edge.targetHandle}`)
+                    );
+                    const uniqueImportedEdges = nextImportedEdges.filter((edge) => {
+                        const key = `${edge.source}|${edge.sourceHandle}|${edge.target}|${edge.targetHandle}`;
+                        if (existingEdgeKeys.has(key)) return false;
+                        existingEdgeKeys.add(key);
+                        return true;
                     });
-                    setCustomCodes((currentCodes) => {
-                        const nextCodes = { ...currentCodes };
-                        Object.entries(imported.customCodes).forEach(([moduleName, code]) => {
-                            const moduleDef = moduleDefsByName.get(moduleName);
-                            if (moduleDef?.fileName === 'inferred' && currentCodes[moduleName] !== undefined) return;
-                            nextCodes[moduleName] = code;
-                        });
-                        return nextCodes;
+                    nextEdges = [...baseEdges, ...uniqueImportedEdges];
+
+                    nextCustomCodes = { ...baseCustomCodes };
+                    Object.entries(imported.customCodes).forEach(([moduleName, code]) => {
+                        const moduleDef = moduleDefsByName.get(moduleName);
+                        if (moduleDef?.fileName === 'inferred' && baseCustomCodes[moduleName] !== undefined) return;
+                        nextCustomCodes[moduleName] = code;
                     });
-                    setExposedPorts((currentExposedPorts) => ({ ...currentExposedPorts, ...nextImportedExposedPorts }));
+                    nextExposedPorts = { ...baseExposedPorts, ...nextImportedExposedPorts };
                 }
 
+                const nextProject = createWorkspacePayload({
+                    nodes: nextNodes,
+                    edges: nextEdges,
+                    customCodes: nextCustomCodes,
+                    exposedPorts: nextExposedPorts,
+                    theme,
+                    previousProject: workingProject,
+                }).project;
+
+                setProjectModel(nextProject);
+                setNodes(nextNodes);
+                setEdges(nextEdges);
+                setCustomCodes(nextCustomCodes);
+                setExposedPorts(nextExposedPorts);
                 setSelectedNodeId(null);
                 setSelectedEdgeId(null);
                 setGlowingNet(null);
@@ -1377,27 +1807,25 @@ module ${activeTopModuleName}_tb();
         },
         [
             customCodes,
-            edges.length,
+            edges,
+            exposedPorts,
             fitView,
             nodes,
+            projectModel,
             readUploadedVerilogFiles,
             recordHistory,
             screenToFlowPosition,
             setEdges,
             setExposedPorts,
             setNodes,
+            setProjectModel,
             showError,
             theme,
         ]
     );
 
     const handleImportVerilogFiles = useCallback(
-        (fileList) => applyImportedVerilogFiles(fileList, 'project', 'merge'),
-        [applyImportedVerilogFiles]
-    );
-
-    const handleImportTopModuleFiles = useCallback(
-        (fileList) => applyImportedVerilogFiles(fileList, 'testbench', 'replace'),
+        (fileList, targetCanvasId = null) => applyImportedVerilogFiles(fileList, 'project', 'merge', targetCanvasId),
         [applyImportedVerilogFiles]
     );
 
@@ -1544,6 +1972,107 @@ module ${activeTopModuleName}_tb();
         ]
     );
 
+    const handleCreateChildCanvas = useCallback(
+        (parentCanvasId, requestedName) => {
+            const currentProject = getCurrentProjectSnapshot();
+            const parentCanvas = currentProject.canvases?.[parentCanvasId];
+            const parentModule = currentProject.modules?.[parentCanvas?.moduleId];
+
+            if (!parentCanvas || !parentModule) {
+                showError('Could not find the selected parent canvas.');
+                return;
+            }
+
+            const moduleName = getUniqueCanvasModuleName(requestedName, currentProject);
+            const projectWithChild = createCanvasInProject(currentProject, { name: moduleName, theme });
+            const childCanvasId = projectWithChild.activeCanvasId;
+            const childModule = getCanvasModuleDefinition(projectWithChild, childCanvasId);
+
+            if (!childModule) {
+                showError('Could not create the child sub-module canvas.');
+                return;
+            }
+
+            const parentCanvasInProject = projectWithChild.canvases[parentCanvasId] || parentCanvas;
+            const parentNodes = parentCanvasInProject.nodes || [];
+            const usedNodeIds = new Set(parentNodes.map((node) => node.id).filter(Boolean));
+            const usedInstanceNames = new Set(parentNodes.map((node) => node.data?.instanceName).filter(Boolean));
+            const makeUnique = (baseName, used) => {
+                const cleanBase = (baseName || 'u_module').replace(/[^a-zA-Z0-9_]/g, '_');
+                let candidate = cleanBase;
+                let index = 1;
+                while (used.has(candidate)) {
+                    candidate = `${cleanBase}_${index}`;
+                    index += 1;
+                }
+                used.add(candidate);
+                return candidate;
+            };
+            const instanceName = makeUnique(`u_${moduleName}`, usedInstanceNames);
+            const nodeId = makeUnique(instanceName, usedNodeIds);
+            const spawnPos = getSmartSpawnPosition(
+                parentNodes,
+                120 + parentNodes.length * 36,
+                100 + parentNodes.length * 24
+            );
+
+            const nextParentCanvas = {
+                ...parentCanvasInProject,
+                nodes: parentNodes.concat({
+                    id: nodeId,
+                    type: 'hardware',
+                    position: spawnPos,
+                    data: {
+                        moduleName,
+                        instanceName,
+                        theme,
+                        inputs: childModule.ports?.inputs || [],
+                        outputs: childModule.ports?.outputs || [],
+                        autoRoute: {},
+                        portsSwapped: false,
+                        tieoffs: {},
+                        exposedPorts: {},
+                        isHierarchicalInstance: true,
+                        sourceCanvasId: childCanvasId,
+                    },
+                }),
+            };
+
+            const nextProject = {
+                ...projectWithChild,
+                canvases: {
+                    ...(projectWithChild.canvases || {}),
+                    [parentCanvasId]: nextParentCanvas,
+                },
+            };
+
+            recordHistory();
+            setProjectModel(nextProject);
+            setNodes([]);
+            setEdges([]);
+            setExposedPorts({});
+            setSelectedNodeId(null);
+            setSelectedEdgeId(null);
+            setGlowingNet(null);
+            setLeftCollapsed(false);
+            setLeftTab('project');
+            setImportStatus({
+                type: 'success',
+                message: `Created child sub-module ${moduleName} under ${parentModule.name || parentCanvas.name}.`,
+            });
+        },
+        [
+            getCurrentProjectSnapshot,
+            getUniqueCanvasModuleName,
+            recordHistory,
+            setEdges,
+            setExposedPorts,
+            setNodes,
+            showError,
+            theme,
+        ]
+    );
+
     const handleOpenCanvas = useCallback(
         (canvasId) => {
             const currentProject = getCurrentProjectSnapshot();
@@ -1563,84 +2092,6 @@ module ${activeTopModuleName}_tb();
             setGlowingNet(null);
         },
         [getCurrentProjectSnapshot, nodes, edges, exposedPorts, theme, setNodes, setEdges, setExposedPorts]
-    );
-
-    const handlePromoteCurrentCanvas = useCallback(
-        (requestedName) => {
-            if (nodes.length === 0 && edges.length === 0) return;
-
-            const currentProject = getCurrentProjectSnapshot();
-            const activeCanvas = currentProject.canvases?.[currentProject.activeCanvasId];
-            const activeModule = currentProject.modules?.[activeCanvas?.moduleId];
-            const currentName = activeModule?.name || activeTopModuleName;
-            const moduleName = requestedName?.trim()
-                ? getUniqueCanvasModuleName(requestedName, currentProject, {
-                    excludeCanvasIds: [activeCanvas?.id || currentProject.activeCanvasId].filter(Boolean),
-                    excludeModuleNames: [currentName].filter(Boolean),
-                })
-                : currentName;
-
-            const moduleCode = generateStructuralVerilog({
-                moduleName,
-                nodes,
-                edges,
-                customCodes,
-                exposedPorts,
-                includeChildDefinitions: false,
-            });
-
-            const nextProject = {
-                ...currentProject,
-                topModuleName: moduleName,
-                modules: {
-                    ...(currentProject.modules || {}),
-                    ...(activeModule
-                        ? {
-                            [activeModule.id]: {
-                                ...activeModule,
-                                name: moduleName,
-                                kind: 'hierarchical',
-                                ports: portsFromExposedPorts(exposedPorts),
-                                rawCode: moduleCode,
-                                canvasId: activeCanvas?.id || currentProject.activeCanvasId,
-                            },
-                        }
-                        : {}),
-                },
-                canvases: {
-                    ...(currentProject.canvases || {}),
-                    ...(activeCanvas
-                        ? {
-                            [activeCanvas.id]: {
-                                ...activeCanvas,
-                                name: moduleName,
-                                nodes,
-                                edges,
-                                exposedPorts,
-                            },
-                        }
-                        : {}),
-                },
-            };
-
-            recordHistory();
-            setProjectModel(nextProject);
-            setCustomCodes((currentCodes) => ({ ...currentCodes, [moduleName]: moduleCode }));
-            setImportStatus({
-                type: 'success',
-                message: `Saved current canvas as structural module ${moduleName}.v.`,
-            });
-        },
-        [
-            activeTopModuleName,
-            customCodes,
-            edges,
-            exposedPorts,
-            getCurrentProjectSnapshot,
-            getUniqueCanvasModuleName,
-            nodes,
-            recordHistory,
-        ]
     );
 
     const handleInstantiateCanvas = useCallback(
@@ -1746,6 +2197,61 @@ module ${activeTopModuleName}_tb();
             setImportStatus({
                 type: 'success',
                 message: `Deleted canvas ${result.deletedCanvasName || result.deletedModuleName}.`,
+            });
+        },
+        [
+            edges,
+            exposedPorts,
+            getCurrentProjectSnapshot,
+            nodes,
+            recordHistory,
+            setEdges,
+            setExposedPorts,
+            setNodes,
+            showError,
+            theme,
+        ]
+    );
+
+    const handleRenameCanvas = useCallback(
+        (canvasId, requestedName) => {
+            const currentProject = getCurrentProjectSnapshot();
+            const result = renameCanvasInProject(currentProject, canvasId, requestedName, {
+                nodes,
+                edges,
+                exposedPorts,
+                theme,
+            });
+
+            if (!result.ok) {
+                showError(result.reason || 'Could not rename the selected canvas.');
+                return;
+            }
+            if (result.unchanged) return;
+
+            recordHistory();
+            setProjectModel(result.project);
+            setNodes(result.state.nodes);
+            setEdges(result.state.edges);
+            setExposedPorts(result.state.exposedPorts);
+            setCustomCodes((currentCodes) => {
+                if (!result.oldName || !result.newName || !Object.prototype.hasOwnProperty.call(currentCodes, result.oldName)) {
+                    return currentCodes;
+                }
+                const nextCodes = { ...currentCodes };
+                const oldCode = nextCodes[result.oldName];
+                delete nextCodes[result.oldName];
+                nextCodes[result.newName] = typeof oldCode === 'string'
+                    ? oldCode.replace(new RegExp(`\\bmodule\\s+${result.oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`), `module ${result.newName}`)
+                    : oldCode;
+                return nextCodes;
+            });
+            setSelectedNodeId(null);
+            setSelectedEdgeId(null);
+            setGlowingNet(null);
+            setImportStatus({
+                type: 'success',
+                message: `Renamed ${result.oldName} to ${result.newName}.`,
             });
         },
         [
@@ -1928,14 +2434,14 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
             return Math.max(270, Math.min(430, 205 + longestPort * 7));
         };
 
-        const semanticStage = (node) => {
+        const semanticStageHint = (node) => {
             const name = `${node?.data?.moduleName || ''} ${node?.data?.instanceName || ''}`.toLowerCase();
             if (/pc|instr|fetch|scheduler/.test(name)) return 0;
             if (/decode|decoder|cmp|compare|branch/.test(name)) return 1;
-            if (/reg_wr_src|regwrite|writeback|wb/.test(name)) return 4;
-            if (/lsu|dmem|mem|cache/.test(name)) return 4;
-            if (/alu|exec|rv_dmux|dmux|mux/.test(name)) return 3;
             if (/reg|register/.test(name)) return 2;
+            if (/alu|exec|rv_dmux|dmux|mux/.test(name)) return 3;
+            if (/lsu|dmem|mem|cache/.test(name)) return 4;
+            if (/reg_wr_src|regwrite|writeback|wb/.test(name)) return 5;
             return null;
         };
 
@@ -1972,16 +2478,44 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
         }
 
         const rawTopoMax = Math.max(1, ...Object.values(topoColumn));
-        const desiredStageCount = Math.min(6, Math.max(4, Math.ceil(Math.sqrt(nodes.length)) + 1));
+        const maxColumnOccupancy = nodes.length > 90 ? 6 : nodes.length > 45 ? 5 : 4;
+        const fallbackColumnCount = Math.max(4, Math.ceil(nodes.length / maxColumnOccupancy));
+        const desiredStageCount = Math.max(rawTopoMax + 1, fallbackColumnCount);
         const nodeColumn = {};
+        const sourceHeavyScore = (node) => edges.filter((edge) => !isGlobalNetEdge(edge) && edge.source === node.id).length;
         nodes.forEach((node) => {
-            const semantic = semanticStage(node);
-            const normalizedTopo = Math.round((topoColumn[node.id] / rawTopoMax) * (desiredStageCount - 1));
-            if (semantic !== null) {
-                nodeColumn[node.id] = Math.min(desiredStageCount - 1, semantic);
-            } else {
-                nodeColumn[node.id] = Math.min(desiredStageCount - 1, normalizedTopo);
-            }
+            const semantic = semanticStageHint(node);
+            const topology = topoColumn[node.id] || 0;
+            const hint = semantic === null ? topology : Math.max(topology, semantic);
+            nodeColumn[node.id] = Math.min(desiredStageCount - 1, hint);
+        });
+
+        const rebalanceColumns = () => {
+            const groups = {};
+            Object.entries(nodeColumn).forEach(([id, col]) => {
+                if (!groups[col]) groups[col] = [];
+                groups[col].push(id);
+            });
+
+            Object.entries(groups).forEach(([colText, group]) => {
+                const col = Number(colText);
+                if (group.length <= maxColumnOccupancy) return;
+                group
+                    .sort((a, b) => sourceHeavyScore(nodeById.get(b)) - sourceHeavyScore(nodeById.get(a)))
+                    .forEach((id, index) => {
+                        if (index < maxColumnOccupancy) return;
+                        const offset = Math.floor(index / maxColumnOccupancy);
+                        nodeColumn[id] = col + offset;
+                    });
+            });
+        };
+
+        rebalanceColumns();
+
+        const columnOrder = [...new Set(Object.values(nodeColumn).sort((a, b) => a - b))];
+        const compressedColumn = new Map(columnOrder.map((col, index) => [col, index]));
+        Object.keys(nodeColumn).forEach((id) => {
+            nodeColumn[id] = compressedColumn.get(nodeColumn[id]) ?? 0;
         });
 
         const columnGroups = {};
@@ -2003,14 +2537,15 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
         });
 
         const startY = 90;
-        const rowGap = 110;
+        const rowGap = nodes.length > 80 ? 90 : 110;
+        const columnGap = nodes.length > 80 ? 220 : 260;
         const columnIds = Object.keys(columnGroups).map(Number).sort((a, b) => a - b);
         const columnX = {};
         let runningX = 80;
         columnIds.forEach((col) => {
             columnX[col] = runningX;
             const widest = Math.max(...columnGroups[col].map((id) => nodeWidth(nodeById.get(id))));
-            runningX += widest + 260;
+            runningX += widest + columnGap;
         });
 
         const columnHeights = {};
@@ -2209,24 +2744,49 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
             const cleanText = lineText.trim();
             if (!cleanText || cleanText.startsWith('//')) return;
 
-            const wireMatch = cleanText.match(/w_([a-zA-Z0-9_]+)_([a-zA-Z0-9_]+)/);
-            if (wireMatch) {
-                const targetNodeId = wireMatch[1];
-                const targetPortName = wireMatch[2];
+            const wireDeclaration = parseWireDeclarationLine(cleanText);
+            const wireName = wireDeclaration?.wireName || cleanText.match(/\bw_[a-zA-Z_][a-zA-Z0-9_$]*\b/)?.[0];
+            if (wireName) {
                 const matchingEdge = edges.find(
-                    (e) => e && e.target === targetNodeId && e.targetHandle === targetPortName
+                    (e) =>
+                        e &&
+                        (
+                            wireName === `w_${e.target}_${e.targetHandle}` ||
+                            wireName === `w_${e.source}_${e.sourceHandle}_src`
+                        )
                 );
                 if (matchingEdge) {
+                    const targetNodeId = wireName === `w_${matchingEdge.source}_${matchingEdge.sourceHandle}_src`
+                        ? matchingEdge.source
+                        : matchingEdge.target;
                     highlightNetPath(matchingEdge.id, targetNodeId);
                     return;
                 }
             }
 
+            const instantiation = parseInstantiationLine(cleanText);
+            if (instantiation?.instanceName) {
+                const exactInstanceNode = nodes.find((node) => node?.data?.instanceName === instantiation.instanceName);
+                if (exactInstanceNode) {
+                    jumpToNode(exactInstanceNode);
+                    return;
+                }
+            }
+
+            const matchingNodeByInstanceToken = nodes.find((node) => {
+                const instName = node?.data?.instanceName;
+                if (!instName) return false;
+                return hasExactIdentifierToken(cleanText, instName);
+            });
+            if (matchingNodeByInstanceToken) {
+                jumpToNode(matchingNodeByInstanceToken);
+                return;
+            }
+
             const matchingNode = nodes.find((node) => {
-                if (!node) return false;
-                const instName = node.data?.instanceName;
-                const modName = node.data?.moduleName;
-                return cleanText.includes(instName) || cleanText.includes(modName);
+                const modName = node?.data?.moduleName;
+                if (!modName) return false;
+                return hasExactIdentifierToken(cleanText, modName);
             });
             if (matchingNode) {
                 jumpToNode(matchingNode);
@@ -2357,11 +2917,11 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
                 previousProject: projectModel,
             });
             localStorage.setItem('axon_interlink_workspace', JSON.stringify(dataToSave));
-        }, 500);
+        }, performanceMode ? 1800 : 500);
         return () => {
             if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         };
-    }, [nodes, edges, customCodes, exposedPorts, theme, projectModel, isHydrated]);
+    }, [nodes, edges, customCodes, exposedPorts, theme, projectModel, isHydrated, performanceMode]);
 
 
     // ============================================================
@@ -2370,47 +2930,65 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
     const onSaveCode = useCallback((targetNodeId, moduleName, updatedCode, quantity = 1) => {
         if (typeof recordHistory === 'function') recordHistory();
 
-        const targetBaseName = moduleName;
+        const originalModuleName = safeIdentifier(moduleName);
+        const targetBaseName = getDeclaredModuleName(updatedCode) || originalModuleName;
+        const cloneQuantity = Math.max(1, Math.min(32, Number(quantity) || 1));
+        const duplicateAliasPattern = new RegExp(`^${targetBaseName}_\\d+$`);
         const { inputs: newParsedInputs, outputs: newParsedOutputs } = parseVerilogToPorts(updatedCode);
 
-        // 1. Core structural map tracking
         setCustomCodes(prev => {
-            const updatedCodes = { ...prev, [targetBaseName]: updatedCode };
-            if (quantity > 1) {
-                updatedCodes[`${targetBaseName}_0`] = updatedCode;
-                for (let i = 1; i < quantity; i++) {
-                    updatedCodes[`${targetBaseName}_${i}`] = updatedCode;
-                }
-            }
+            const updatedCodes = { ...prev };
+            Object.keys(updatedCodes).forEach((key) => {
+                if (duplicateAliasPattern.test(key)) delete updatedCodes[key];
+            });
+            if (originalModuleName !== targetBaseName) delete updatedCodes[originalModuleName];
+            updatedCodes[targetBaseName] = updatedCode;
             return updatedCodes;
         });
 
-        // 2. Node array state synchronization
         setNodes(nds => {
             const baseNode = nds.find(n => n.id === targetNodeId);
             if (!baseNode) return nds;
 
+            const usedInstanceNames = new Set(
+                nds
+                    .filter((node) => node.id !== targetNodeId)
+                    .map((node) => node.data?.instanceName)
+                    .filter(Boolean)
+            );
+            const usedNodeIds = new Set(nds.map((node) => node.id));
+            usedNodeIds.delete(targetNodeId);
+
             const updatedNodes = nds.map(node => {
-                if (node.id === targetNodeId || node.data.moduleName === targetBaseName) {
+                const nodeModuleName = node.data?.moduleName || '';
+                const isSameLogicalModule =
+                    node.id === targetNodeId ||
+                    nodeModuleName === originalModuleName ||
+                    nodeModuleName === targetBaseName ||
+                    duplicateAliasPattern.test(nodeModuleName);
+                if (isSameLogicalModule) {
+                    const shouldRenameTargetInstance = cloneQuantity > 1 && node.id === targetNodeId;
                     return {
                         ...node,
                         data: {
                             ...node.data,
                             code: updatedCode,
-                            // Synchronize structural ports seamlessly!
                             inputs: newParsedInputs,
                             outputs: newParsedOutputs,
-                            moduleName: quantity > 1 && node.id === targetNodeId ? `${targetBaseName}_0` : node.data.moduleName
+                            moduleName: targetBaseName,
+                            instanceName: shouldRenameTargetInstance
+                                ? makeUniqueName(`u_${targetBaseName}_0`, usedInstanceNames)
+                                : node.data.instanceName,
                         }
                     };
                 }
                 return node;
             });
 
-            if (quantity > 1) {
+            if (cloneQuantity > 1) {
                 const batchClones = [];
-                for (let i = 1; i < quantity; i++) {
-                    const cloneId = `${targetNodeId}_batch_${Date.now()}_${i}`;
+                for (let i = 1; i < cloneQuantity; i++) {
+                    const cloneId = makeUniqueName(`${targetNodeId}_batch_${i}`, usedNodeIds);
                     batchClones.push({
                         ...baseNode,
                         id: cloneId,
@@ -2421,9 +2999,11 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
                         data: {
                             ...baseNode.data,
                             code: updatedCode,
-                            inputs: newParsedInputs, // Synchronize to clones
-                            outputs: newParsedOutputs, // Synchronize to clones
-                            moduleName: `${targetBaseName}_${i}`
+                            inputs: newParsedInputs,
+                            outputs: newParsedOutputs,
+                            moduleName: targetBaseName,
+                            instanceName: makeUniqueName(`u_${targetBaseName}_${i}`, usedInstanceNames),
+                            exposedPorts: {},
                         }
                     });
                 }
@@ -2480,9 +3060,12 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
                 setColorWiresByModule={setColorWiresByModule}
                 animateWireFlow={animateWireFlow}
                 setAnimateWireFlow={setAnimateWireFlow}
+                deleteMode={deleteMode}
+                setDeleteMode={setDeleteMode}
+                performanceMode={performanceMode}
             />
 
-            {/* CONTEXTUAL MODAL (NODE / EDGE CONFIG) */}
+            {/* CONTEXTUAL MODAL (NODE CONFIG) */}
             <ContextualModal
                 key={activeModal.id}
                 activeModal={activeModal}
@@ -2508,8 +3091,6 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
                 setEdges={setEdges}
                 setExposedPorts={setExposedPorts}
                 setSelectedNodeId={setSelectedNodeId}
-                setSelectedEdgeId={setSelectedEdgeId}
-                setGlowingNet={setGlowingNet}
                 onSaveCode={onSaveCode}
             />
 
@@ -2596,10 +3177,12 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
                     onDeleteModuleFile={handleDeleteModuleFile}
                     projectModel={effectiveProjectModel}
                     onCreateCanvas={handleCreateCanvas}
+                    onCreateChildCanvas={handleCreateChildCanvas}
                     onOpenCanvas={handleOpenCanvas}
                     onInstantiateCanvas={handleInstantiateCanvas}
-                    onPromoteCurrentCanvas={handlePromoteCurrentCanvas}
                     onDeleteCanvas={handleDeleteCanvas}
+                    onRenameCanvas={handleRenameCanvas}
+                    performanceMode={performanceMode}
                 />
                 {!leftCollapsed && <ResizeHandle onMouseDown={onMouseDownLeft} isDragging={draggingLeft} />}
 
@@ -2615,14 +3198,16 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
                     onPaneClick={onPaneClick}
                     edgeTypes={edgeTypes}
                     nodeTypes={nodeTypes}
-                    recordHistory={recordHistory}
+                    recordHistory={handleNodeDragStop}
                     ConnectionMode={ConnectionMode}
+                    theme={theme}
                     t={t}
                     s={s}
                     isValidConnection={isValidConnection}
                     wireViewMode={wireViewMode}
                     setWireViewMode={setWireViewMode}
                     wireStats={wireStats}
+                    alignmentGuides={alignmentGuides}
                 />
                 {!rightCollapsed && <ResizeHandle onMouseDown={onMouseDownRight} isDragging={draggingRight} />}
 
@@ -2642,8 +3227,10 @@ module ${cleanName} (\n${portDecls.join(',\n')}\n);\n\n// Write internal design 
                     copied={copied}
                     handleCopyCode={handleCopyCode}
                     downloadTextFile={downloadTextFile}
-                    onImportTopModuleFiles={handleImportTopModuleFiles}
                     activeTopModuleName={activeTopModuleName}
+                    generatedCodeDirty={generatedCodeDirty}
+                    onRefreshGeneratedCode={refreshGeneratedCode}
+                    performanceMode={performanceMode}
                 />
             </div>
         </div>
