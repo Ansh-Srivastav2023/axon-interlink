@@ -1,9 +1,51 @@
 // src/components/LeftPanel/DRC.jsx
+import { useState } from 'react';
 import { IconAlert, IconZap, IconCircleSlash, IconActivity } from '../../styles';
+import { getEdgeEffectiveWidths, getSourceSlice, getTargetSlice, rangesOverlap } from '../../utils/edgeSlices';
 
-const DRC = ({ nodes, edges, exposedPorts, theme, t, s, setSelectedNodeId, setSelectedEdgeId, setCenter, setNodes }) => {
-    const activeAlerts = [];
+const DRC = ({ nodes, edges, exposedPorts, theme, t, s, setSelectedNodeId, setSelectedEdgeId, setCenter, setNodes, performanceMode = false }) => {
+    const [runSnapshot, setRunSnapshot] = useState(null);
+
     if (!nodes || !Array.isArray(nodes)) return null;
+    const runIsCurrent =
+        runSnapshot?.nodes === nodes &&
+        runSnapshot?.edges === edges &&
+        runSnapshot?.exposedPorts === exposedPorts;
+
+    if (performanceMode && !runIsCurrent) {
+        return (
+            <div
+                style={{
+                    ...s.emptyState,
+                    textAlign: 'left',
+                    background: theme === 'dark' ? 'rgba(245,158,11,0.08)' : 'rgba(245,158,11,0.12)',
+                    border: `1px dashed ${theme === 'dark' ? 'rgba(245,158,11,0.35)' : 'rgba(217,119,6,0.35)'}`,
+                    color: t.textSecondary,
+                    lineHeight: 1.5,
+                }}
+            >
+                <div style={{ color: '#f59e0b', fontWeight: 800, marginBottom: '6px' }}>
+                    DRC paused for performance mode
+                </div>
+                <div style={{ marginBottom: '10px' }}>
+                    Large designs skip continuous full-design DRC. Run it when you need a fresh check.
+                </div>
+                <button
+                    type="button"
+                    onClick={() => setRunSnapshot({ nodes, edges, exposedPorts })}
+                    style={{
+                        ...s.smallBtn,
+                        borderColor: 'rgba(245,158,11,0.45)',
+                        color: '#f59e0b',
+                    }}
+                >
+                    Run DRC
+                </button>
+            </div>
+        );
+    }
+
+    const activeAlerts = [];
     const safeEdges = edges || [];
     const instanceNameOwners = new Map();
 
@@ -117,12 +159,35 @@ const DRC = ({ nodes, edges, exposedPorts, theme, t, s, setSelectedNodeId, setSe
                 });
             }
             if (connected.length > 1) {
-                activeAlerts.push({
-                    node,
-                    type: 'error',
-                    icon: <IconZap color="#ef4444" size={14} />,
-                    text: `Bus Short: Multiple drivers connected to ${node.data.instanceName || 'Block'}.${port.name}.`,
+                const slices = connected.map((edge) => getTargetSlice(edge, port));
+                const hasFullPortDriver = slices.some((slice) => !slice);
+                const hasOverlap = slices.some((slice, sliceIndex) =>
+                    slices.some((otherSlice, otherIndex) => sliceIndex !== otherIndex && rangesOverlap(slice, otherSlice))
+                );
+                if (hasFullPortDriver || hasOverlap) {
+                    activeAlerts.push({
+                        node,
+                        type: 'error',
+                        icon: <IconZap color="#ef4444" size={14} />,
+                        text: `Bus Short: Multiple drivers overlap on ${node.data.instanceName || 'Block'}.${port.name}.`,
+                    });
+                }
+            }
+            if (connected.length > 0 && port.width > 1) {
+                const coveredBits = new Set();
+                connected.forEach((edge) => {
+                    const slice = getTargetSlice(edge, port) || { lsb: 0, msb: port.width - 1 };
+                    for (let bit = slice.lsb; bit <= slice.msb; bit += 1) coveredBits.add(bit);
                 });
+                if (coveredBits.size < port.width) {
+                    activeAlerts.push({
+                        node,
+                        edgeId: connected[0]?.id,
+                        type: 'warn',
+                        icon: <IconActivity color="#f59e0b" size={14} />,
+                        text: `Partial Input: ${node.data.instanceName || 'Block'}.${port.name} drives ${coveredBits.size}/${port.width} bits. Unwired bits stay high-Z.`,
+                    });
+                }
             }
         });
 
@@ -157,7 +222,31 @@ const DRC = ({ nodes, edges, exposedPorts, theme, t, s, setSelectedNodeId, setSe
         const tgtPort = (tgtNode.data.inputs || []).find(
             (p) => p && p.name === edge.targetHandle
         );
-        if (srcPort && tgtPort && srcPort.width !== tgtPort.width) {
+        const sourceSlice = getSourceSlice(edge, srcPort);
+        const targetSlice = getTargetSlice(edge, tgtPort);
+        if (edge.data?.sourceSlice && !sourceSlice) {
+            activeAlerts.push({
+                node: srcNode,
+                edgeId: edge.id,
+                type: 'error',
+                icon: <IconAlert color="#ef4444" size={14} />,
+                text: `Invalid Slice: ${srcNode.data.instanceName || 'u'}.${srcPort.name} source slice is outside the port range.`,
+            });
+            return;
+        }
+        if (edge.data?.targetSlice && !targetSlice) {
+            activeAlerts.push({
+                node: tgtNode,
+                edgeId: edge.id,
+                type: 'error',
+                icon: <IconAlert color="#ef4444" size={14} />,
+                text: `Invalid Slice: ${tgtNode.data.instanceName || 'u'}.${tgtPort.name} target slice is outside the port range.`,
+            });
+            return;
+        }
+
+        const { sourceWidth, targetWidth } = getEdgeEffectiveWidths(edge, srcPort, tgtPort);
+        if (srcPort && tgtPort && sourceWidth !== targetWidth) {
             activeAlerts.push({
                 node: tgtNode,
                 edgeId: edge.id,

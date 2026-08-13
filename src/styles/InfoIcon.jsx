@@ -1,4 +1,5 @@
 import { IconSettings } from "./icons";
+import { useCanvasTheme } from "../utils/CanvasThemeContext";
 
 export const InfoIcon = ({ id, data, t }) => {
     const openConfig = (event) => {
@@ -12,7 +13,8 @@ export const InfoIcon = ({ id, data, t }) => {
         }));
     };
 
-    const isDark = data?.theme === 'dark';
+    const canvasTheme = useCanvasTheme(data?.theme || 'dark');
+    const isDark = canvasTheme === 'dark';
 
     return (
         <div style={{ position: 'absolute', top: -10, right: -10, zIndex: 20 }}>

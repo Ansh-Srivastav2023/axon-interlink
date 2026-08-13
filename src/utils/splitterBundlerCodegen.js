@@ -1,3 +1,5 @@
+import { applyTargetSlice } from './edgeSlices.js';
+
 export const getPortWidth = (port) => Math.max(1, port?.width || 1);
 
 export const floatingLiteral = (port) => `${getPortWidth(port)}'bz`;
@@ -27,6 +29,12 @@ export const getSinkExpression = (node, port, edges = [], exposedPorts = {}) => 
     return null;
 };
 
+const getEdgeTargetSignal = (nodes, edge) => {
+    const targetNode = nodes.find((node) => node.id === edge.target);
+    const targetPort = (targetNode?.data?.inputs || []).find((port) => port.name === edge.targetHandle);
+    return applyTargetSlice(`w_${edge.target}_${edge.targetHandle}`, edge, targetPort);
+};
+
 export const generateSplitterBundlerAssigns = (nodes = [], edges = [], exposedPorts = {}) => {
     const assigns = [];
 
@@ -42,7 +50,7 @@ export const generateSplitterBundlerAssigns = (nodes = [], edges = [], exposedPo
                     : floatingLiteral(outPort);
 
                 outEdges.forEach((edge) => {
-                    assigns.push(`  assign w_${edge.target}_${edge.targetHandle} = ${sourceSlice};`);
+                    assigns.push(`  assign ${getEdgeTargetSignal(nodes, edge)} = ${sourceSlice};`);
                 });
 
                 if (exposedPorts[`${node.id}__${outPort.name}`]) {
@@ -63,7 +71,7 @@ export const generateSplitterBundlerAssigns = (nodes = [], edges = [], exposedPo
                 const bundledExpression = `{ ${bundledNets.join(', ')} }`;
 
                 outEdges.forEach((edge) => {
-                    assigns.push(`  assign w_${edge.target}_${edge.targetHandle} = ${bundledExpression};`);
+                    assigns.push(`  assign ${getEdgeTargetSignal(nodes, edge)} = ${bundledExpression};`);
                 });
 
                 if (outputExposed) {

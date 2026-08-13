@@ -1,3 +1,5 @@
+import { getEdgeEffectiveWidths, getSourceSlice, getTargetSlice, rangesOverlap } from './edgeSlices.js';
+
 export const findPort = (node, handle, direction) => {
     if (!node?.data || !handle) return null;
     const ports = direction === 'output' ? node.data.outputs : node.data.inputs;
@@ -26,21 +28,39 @@ export const validateGraph = (nodes = [], edges = [], exposedPorts = {}) => {
             return;
         }
 
-        if (sourcePort.width !== targetPort.width) {
+        const { sourceWidth, targetWidth } = getEdgeEffectiveWidths(edge, sourcePort, targetPort);
+        if (edge.data?.sourceSlice && !getSourceSlice(edge, sourcePort)) {
+            issues.push({ type: 'invalid-source-slice', edgeId: edge.id });
+        }
+        if (edge.data?.targetSlice && !getTargetSlice(edge, targetPort)) {
+            issues.push({ type: 'invalid-target-slice', edgeId: edge.id });
+        }
+
+        if (sourceWidth !== targetWidth) {
             issues.push({
                 type: 'width-mismatch',
                 edgeId: edge.id,
-                sourceWidth: sourcePort.width,
-                targetWidth: targetPort.width,
+                sourceWidth,
+                targetWidth,
             });
         }
 
         const targetKey = `${edge.target}__${edge.targetHandle}`;
-        targetInputs.set(targetKey, (targetInputs.get(targetKey) || 0) + 1);
+        if (!targetInputs.has(targetKey)) targetInputs.set(targetKey, []);
+        targetInputs.get(targetKey).push({ edge, slice: getTargetSlice(edge, targetPort) });
     });
 
-    targetInputs.forEach((count, key) => {
-        if (count > 1) issues.push({ type: 'multiple-drivers', targetKey: key, count });
+    targetInputs.forEach((drivers, key) => {
+        if (drivers.length <= 1) return;
+        const hasFullPortDriver = drivers.some((driver) => !driver.slice);
+        const hasOverlap = drivers.some((driver, driverIndex) =>
+            drivers.some((otherDriver, otherIndex) =>
+                driverIndex !== otherIndex && rangesOverlap(driver.slice, otherDriver.slice)
+            )
+        );
+        if (hasFullPortDriver || hasOverlap) {
+            issues.push({ type: 'multiple-drivers', targetKey: key, count: drivers.length });
+        }
     });
 
     Object.entries(exposedPorts || {}).forEach(([key, entry]) => {

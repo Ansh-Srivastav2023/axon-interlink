@@ -13,6 +13,7 @@ const LibraryTab = ({
     createBlock,
     nodes, edges, exposedPorts,
     setSelectedNodeId, setSelectedEdgeId, setCenter, setNodes,
+    performanceMode,
 }) => {
     const isDark = theme === 'dark';
 
@@ -238,6 +239,7 @@ const LibraryTab = ({
                     setSelectedEdgeId={setSelectedEdgeId}
                     setCenter={setCenter}
                     setNodes={setNodes}
+                    performanceMode={performanceMode}
                 />
             </div>
 

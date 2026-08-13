@@ -1,4 +1,5 @@
-import { ReactFlow, Background, Controls } from "@xyflow/react"
+import { ReactFlow, Background, Controls, ViewportPortal } from "@xyflow/react"
+import { CanvasThemeContext } from "../utils/CanvasThemeContext"
 
 
 const Canvas = ({
@@ -16,11 +17,13 @@ const Canvas = ({
     recordHistory,
     isValidConnection,
     ConnectionMode,
+    theme,
     t,
     s,
     wireViewMode,
     setWireViewMode,
     wireStats,
+    alignmentGuides,
 }) => {
     const modeButton = (mode, label) => {
         const active = wireViewMode === mode;
@@ -46,27 +49,64 @@ const Canvas = ({
 
     return (
         <div style={{ ...s.canvas, position: 'relative' }}>
-            <ReactFlow 
-            nodes={nodes} 
-            edges={edges} 
-            onNodesChange={onNodesChange} 
-            onEdgesChange={onEdgesChange} 
-            onConnect={onConnect} 
-            onReconnect={onReconnect} 
-            onNodeClick={onNodeClick} 
-            onEdgeClick={onEdgeClick} 
-            onPaneClick={onPaneClick} 
-            onNodeDragStop={recordHistory} 
-            isValidConnection={isValidConnection}
-            nodeTypes={nodeTypes} 
-            edgeTypes={edgeTypes} 
-            fitView reconnectable="always" 
-            deleteKeyCode={null} 
-            connectionMode={ConnectionMode.Loose} 
-            style={{ backgroundColor: t.canvasBg }}>
-                <Background color={t.canvasDot} gap={24} size={1.5} />
-                <Controls position="bottom-left" style={{ background: '#050505', border: '1px solid #222222', borderRadius: '6px' }} />
-            </ReactFlow>
+            <CanvasThemeContext.Provider value={theme}>
+                <ReactFlow 
+                nodes={nodes} 
+                edges={edges} 
+                onNodesChange={onNodesChange} 
+                onEdgesChange={onEdgesChange} 
+                onConnect={onConnect} 
+                onReconnect={onReconnect} 
+                onNodeClick={onNodeClick} 
+                onEdgeClick={onEdgeClick} 
+                onPaneClick={onPaneClick} 
+                onNodeDragStop={recordHistory} 
+                isValidConnection={isValidConnection}
+                nodeTypes={nodeTypes} 
+                edgeTypes={edgeTypes} 
+                elevateEdgesOnSelect
+                fitView reconnectable="always" 
+                deleteKeyCode={null} 
+                connectionMode={ConnectionMode.Loose} 
+                style={{ backgroundColor: t.canvasBg }}>
+                    <Background color={t.canvasDot} gap={24} size={1.5} />
+                    {(alignmentGuides?.vertical || alignmentGuides?.horizontal) && (
+                        <ViewportPortal>
+                            {alignmentGuides?.vertical && (
+                                <div
+                                    style={{
+                                        position: 'absolute',
+                                        left: `${alignmentGuides.vertical.x}px`,
+                                        top: `${alignmentGuides.vertical.y1 - 60}px`,
+                                        width: '1px',
+                                        height: `${Math.max(120, alignmentGuides.vertical.y2 - alignmentGuides.vertical.y1 + 120)}px`,
+                                        background: '#22d3ee',
+                                        boxShadow: '0 0 0 1px rgba(34,211,238,0.25), 0 0 10px rgba(34,211,238,0.45)',
+                                        pointerEvents: 'none',
+                                        zIndex: 1000,
+                                    }}
+                                />
+                            )}
+                            {alignmentGuides?.horizontal && (
+                                <div
+                                    style={{
+                                        position: 'absolute',
+                                        left: `${alignmentGuides.horizontal.x1 - 60}px`,
+                                        top: `${alignmentGuides.horizontal.y}px`,
+                                        width: `${Math.max(120, alignmentGuides.horizontal.x2 - alignmentGuides.horizontal.x1 + 120)}px`,
+                                        height: '1px',
+                                        background: '#22d3ee',
+                                        boxShadow: '0 0 0 1px rgba(34,211,238,0.25), 0 0 10px rgba(34,211,238,0.45)',
+                                        pointerEvents: 'none',
+                                        zIndex: 1000,
+                                    }}
+                                />
+                            )}
+                        </ViewportPortal>
+                    )}
+                    <Controls position="bottom-left" style={{ background: '#050505', border: '1px solid #222222', borderRadius: '6px' }} />
+                </ReactFlow>
+            </CanvasThemeContext.Provider>
             <div
                 style={{
                     position: 'absolute',

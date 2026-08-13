@@ -15,6 +15,8 @@ const sanitizeIdentifier = (value, fallback = 'item') => {
     return cleaned || fallback;
 };
 
+const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const stableId = (prefix, name) => `${prefix}_${sanitizeIdentifier(name).toLowerCase()}`;
 
 const makeUniqueId = (baseId, usedIds) => {
@@ -427,6 +429,145 @@ const removeCanvasModuleInstances = (canvas, moduleName, sourceCanvasId) => {
         exposedPorts,
     };
 };
+
+const renameModuleDeclaration = (code, oldName, newName) => {
+    if (typeof code !== 'string' || !oldName || !newName || oldName === newName) return code;
+    return code.replace(new RegExp(`\\bmodule\\s+${escapeRegExp(oldName)}\\b`), `module ${newName}`);
+};
+
+const renameCanvasModuleReferences = (canvas, oldName, newName, sourceCanvasId) => {
+    if (!canvas || !oldName || !newName || oldName === newName) return canvas;
+
+    const nextNodes = (canvas.nodes || []).map((node) => {
+        const shouldRename =
+            node?.data?.sourceCanvasId === sourceCanvasId ||
+            node?.data?.moduleName === oldName;
+        if (!shouldRename) return node;
+
+        return {
+            ...node,
+            data: {
+                ...(node.data || {}),
+                moduleName: newName,
+            },
+        };
+    });
+
+    return {
+        ...canvas,
+        nodes: nextNodes,
+    };
+};
+
+export function renameCanvasInProject(project, canvasId, requestedName, currentState = {}) {
+    const baseProject = updateActiveCanvasInProject(project, currentState);
+    const targetCanvas = baseProject.canvases?.[canvasId];
+    if (!targetCanvas) {
+        return {
+            ok: false,
+            reason: 'Canvas was not found.',
+            project: baseProject,
+            state: currentState,
+        };
+    }
+
+    const targetModule = baseProject.modules?.[targetCanvas.moduleId];
+    const oldName = targetModule?.name || targetCanvas.name;
+    const newName = sanitizeIdentifier(requestedName || oldName, oldName);
+
+    if (!newName) {
+        return {
+            ok: false,
+            reason: 'Canvas name cannot be empty.',
+            project: baseProject,
+            state: currentState,
+        };
+    }
+
+    if (newName === oldName) {
+        const activeCanvas = baseProject.canvases?.[baseProject.activeCanvasId] || targetCanvas;
+        return {
+            ok: true,
+            unchanged: true,
+            oldName,
+            newName,
+            project: baseProject,
+            state: {
+                nodes: activeCanvas.nodes || [],
+                edges: activeCanvas.edges || [],
+                exposedPorts: activeCanvas.exposedPorts || {},
+            },
+        };
+    }
+
+    const hasNameConflict = Object.values(baseProject.modules || {}).some(
+        (moduleDef) => moduleDef?.id !== targetCanvas.moduleId && moduleDef?.name === newName
+    );
+    if (hasNameConflict) {
+        return {
+            ok: false,
+            reason: `A module or canvas named '${newName}' already exists.`,
+            project: baseProject,
+            state: currentState,
+        };
+    }
+
+    const nextFiles = { ...(baseProject.files || {}) };
+    const nextModules = { ...(baseProject.modules || {}) };
+    const nextCanvases = {};
+
+    Object.entries(baseProject.canvases || {}).forEach(([id, canvas]) => {
+        const renamedCanvas = renameCanvasModuleReferences(canvas, oldName, newName, canvasId);
+        nextCanvases[id] = id === canvasId
+            ? {
+                ...renamedCanvas,
+                name: newName,
+            }
+            : renamedCanvas;
+    });
+
+    if (targetModule) {
+        const nextRawCode = renameModuleDeclaration(targetModule.rawCode, oldName, newName);
+        nextModules[targetModule.id] = {
+            ...targetModule,
+            name: newName,
+            rawCode: nextRawCode,
+        };
+
+        if (targetModule.fileId && nextFiles[targetModule.fileId]) {
+            nextFiles[targetModule.fileId] = {
+                ...nextFiles[targetModule.fileId],
+                name: `${newName}.v`,
+                path: `rtl/${newName}.v`,
+                content: renameModuleDeclaration(nextFiles[targetModule.fileId].content, oldName, newName),
+            };
+        }
+    }
+
+    const nextActiveCanvas = nextCanvases[baseProject.activeCanvasId] || Object.values(nextCanvases)[0];
+    const nextActiveModule = nextModules[nextActiveCanvas?.moduleId];
+    const nextProject = {
+        ...baseProject,
+        files: nextFiles,
+        modules: nextModules,
+        canvases: nextCanvases,
+        topModuleId: nextActiveModule?.id || baseProject.topModuleId,
+        topModuleName: nextActiveModule?.name || nextActiveCanvas?.name || baseProject.topModuleName || DEFAULT_TOP_MODULE_NAME,
+    };
+
+    return {
+        ok: true,
+        oldName,
+        newName,
+        canvasId,
+        project: nextProject,
+        state: {
+            nodes: nextActiveCanvas?.nodes || [],
+            edges: nextActiveCanvas?.edges || [],
+            exposedPorts: nextActiveCanvas?.exposedPorts || {},
+        },
+    };
+}
 
 export function deleteCanvasFromProject(project, canvasId, currentState = {}) {
     const baseProject = updateActiveCanvasInProject(project, currentState);

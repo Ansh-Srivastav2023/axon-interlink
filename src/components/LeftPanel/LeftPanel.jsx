@@ -146,10 +146,12 @@ const LeftPanel = ({
     onDeleteModuleFile,
     projectModel,
     onCreateCanvas,
+    onCreateChildCanvas,
     onOpenCanvas,
     onInstantiateCanvas,
-    onPromoteCurrentCanvas,
     onDeleteCanvas,
+    onRenameCanvas,
+    performanceMode,
 }) => {
     const renderContent = () => {
         if (leftCollapsed) return null;
@@ -179,6 +181,7 @@ const LeftPanel = ({
                     setSelectedEdgeId={setSelectedEdgeId}
                     setCenter={setCenter}
                     setNodes={setNodes}
+                    performanceMode={performanceMode}
                 />
             );
         }
@@ -191,12 +194,12 @@ const LeftPanel = ({
                     s={s}
                     projectModel={projectModel}
                     nodes={nodes}
-                    edges={edges}
                     onCreateCanvas={onCreateCanvas}
+                    onCreateChildCanvas={onCreateChildCanvas}
                     onOpenCanvas={onOpenCanvas}
                     onInstantiateCanvas={onInstantiateCanvas}
-                    onPromoteCurrentCanvas={onPromoteCurrentCanvas}
                     onDeleteCanvas={onDeleteCanvas}
+                    onRenameCanvas={onRenameCanvas}
                     customCodes={customCodes}
                     getModuleCode={getModuleCode}
                     onSaveCode={onSaveCode}

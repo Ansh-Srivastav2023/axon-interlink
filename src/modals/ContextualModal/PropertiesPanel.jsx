@@ -98,7 +98,7 @@ const PropertiesPanel = ({
                         />
                         <span style={{ fontSize: '12px', color: t.textSecondary }}>
                             {instantiationQuantity > 1
-                                ? `Creates ${node.data.moduleName}_0 through ${node.data.moduleName}_${instantiationQuantity - 1}`
+                                ? `Creates ${instantiationQuantity} instances of ${node.data.moduleName}`
                                 : 'Single block instance'}
                         </span>
                     </div>

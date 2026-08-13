@@ -9,6 +9,7 @@ import {
     InfoIcon,
     renderDecorations
 } from '../styles';
+import { useCanvasTheme } from '../utils/CanvasThemeContext';
 
 export default function SplitterNode({ id, data, selected }) {
     const updateNodeInternals = useUpdateNodeInternals();
@@ -18,7 +19,8 @@ export default function SplitterNode({ id, data, selected }) {
         updateNodeInternals(id);
     }, [data.inputs, data.outputs, id, updateNodeInternals]);
 
-    const isDark = data.theme === 'dark';
+    const canvasTheme = useCanvasTheme(data?.theme || 'dark');
+    const isDark = canvasTheme === 'dark';
     const t = isDark ? darkNodeStyles : lightNodeStyles;
 
     // 1. Calculate dynamic height based on your port count so it stretches nicely

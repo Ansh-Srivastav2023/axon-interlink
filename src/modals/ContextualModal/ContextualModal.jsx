@@ -1,5 +1,4 @@
 import NodeModalContent from './NodeModalContent';
-import EdgeModalContent from './EdgeModalContent';
 
 // ============================
 // ContextualModal Component
@@ -26,12 +25,12 @@ const ContextualModal = ({
     setEdges,
     setExposedPorts,
     setSelectedNodeId,
-    setGlowingNet,
     onSaveCode
 }) => {
     if (!activeModal || !activeModal.type) return null;
 
     const isNode = activeModal.type === 'node';
+    if (!isNode) return null;
     const targetId = activeModal.id;
 
     // ---------- Helpers ----------
@@ -63,71 +62,43 @@ const ContextualModal = ({
         ? '0 24px 80px rgba(0,0,0,0.62), inset 0 1px 0 rgba(255,255,255,0.06)'
         : '0 24px 80px rgba(15,23,42,0.18), inset 0 1px 0 rgba(255,255,255,0.9)';
 
-    if (isNode) {
-        const node = nodes.find(n => n.id === targetId);
-        if (!node) return null;
-        return (
-            <div
-                onMouseDown={handleModalDragStart}
-                style={{
-                    ...modalStyle,
-                    width: '560px',
-                    border: borderStyle,
-                    boxShadow: boxShadowStyle
-                }}
-            >
-                <NodeModalContent
-                    node={node}
-                    targetId={targetId}
-                    theme={theme}
-                    t={t}
-                    s={s}
-                    nodes={nodes}
-                    edges={edges}
-                    exposedPorts={exposedPorts}
-                    closeModal={closeModal}
-                    updateSelectedNode={updateSelectedNode}
-                    togglePortSwap={togglePortSwap}
-                    toggleExposePort={toggleExposePort}
-                    getPortLabel={getPortLabel}
-                    parsePorts={parsePorts}
-                    recordHistory={recordHistory}
-                    setNodes={setNodes}
-                    setEdges={setEdges}
-                    setExposedPorts={setExposedPorts}
-                    setSelectedNodeId={setSelectedNodeId}
-                    currentModuleCode={currentModuleCode}
-                    onSaveCode={onSaveCode}
-                />
-            </div>
-        );
-    } else {
-        const edge = edges.find(e => e.id === targetId);
-        if (!edge) return null;
-        return (
-            <div
-                onMouseDown={handleModalDragStart}
-                style={{
-                    ...modalStyle,
-                    width: '360px',
-                    border: borderStyle,
-                    boxShadow: boxShadowStyle
-                }}
-            >
-                <EdgeModalContent
-                    edge={edge}
-                    targetId={targetId}
-                    t={t}
-                    s={s}
-                    theme={theme}
-                    recordHistory={recordHistory}
-                    setEdges={setEdges}
-                    closeModal={closeModal}
-                    setGlowingNet={setGlowingNet}
-                />
-            </div>
-        );
-    }
+    const node = nodes.find(n => n.id === targetId);
+    if (!node) return null;
+    return (
+        <div
+            onMouseDown={handleModalDragStart}
+            style={{
+                ...modalStyle,
+                width: '560px',
+                border: borderStyle,
+                boxShadow: boxShadowStyle
+            }}
+        >
+            <NodeModalContent
+                node={node}
+                targetId={targetId}
+                theme={theme}
+                t={t}
+                s={s}
+                nodes={nodes}
+                edges={edges}
+                exposedPorts={exposedPorts}
+                closeModal={closeModal}
+                updateSelectedNode={updateSelectedNode}
+                togglePortSwap={togglePortSwap}
+                toggleExposePort={toggleExposePort}
+                getPortLabel={getPortLabel}
+                parsePorts={parsePorts}
+                recordHistory={recordHistory}
+                setNodes={setNodes}
+                setEdges={setEdges}
+                setExposedPorts={setExposedPorts}
+                setSelectedNodeId={setSelectedNodeId}
+                currentModuleCode={currentModuleCode}
+                onSaveCode={onSaveCode}
+            />
+        </div>
+    );
 };
 
 export default ContextualModal;

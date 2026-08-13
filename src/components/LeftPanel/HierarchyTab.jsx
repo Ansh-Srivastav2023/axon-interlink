@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FullCodeModal from '../../modals/ContextualModal/FullCodeModal';
 import { highlightVerilogCode } from '../../verilog-code/verilogEdits';
-import { IconBox, IconCode, IconFolder, IconSave, IconTrash } from '../../styles';
+import { IconBox, IconCode, IconFolder, IconSearch, IconTrash } from '../../styles';
 import { getCanvasSummaries } from '../../utils/projectModel';
 
 const toolbarButtonStyle = (t) => ({
@@ -53,6 +53,21 @@ const IconPlus = ({ size = 14 }) => (
     </svg>
 );
 
+const IconPencil = ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 20h9" />
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+);
+
+const IconDotsVertical = ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="12" cy="5" r="1.8" />
+        <circle cx="12" cy="12" r="1.8" />
+        <circle cx="12" cy="19" r="1.8" />
+    </svg>
+);
+
 const getCanvasNodes = (projectModel, canvas, liveNodes) => {
     if (canvas?.isActive) return liveNodes || [];
     return projectModel?.canvases?.[canvas?.id]?.nodes || [];
@@ -85,7 +100,6 @@ const HierarchyTab = ({
     s,
     projectModel,
     nodes,
-    edges,
     customCodes,
     getModuleCode,
     onSaveCode,
@@ -94,23 +108,40 @@ const HierarchyTab = ({
     importStatus,
     onDeleteModuleFile,
     onCreateCanvas,
+    onCreateChildCanvas,
     onOpenCanvas,
     onInstantiateCanvas,
-    onPromoteCurrentCanvas,
     onDeleteCanvas,
+    onRenameCanvas,
 }) => {
     const importInputRef = useRef(null);
+    const pendingImportCanvasIdRef = useRef(null);
+    const nameInputRef = useRef(null);
+    const canvasSearchInputRef = useRef(null);
     const didAutoExpandRef = useRef(false);
     const [expandedCanvasId, setExpandedCanvasId] = useState(null);
     const [activeFile, setActiveFile] = useState(null);
     const [editorCode, setEditorCode] = useState('');
     const [dirty, setDirty] = useState(false);
+    const [inlineNameAction, setInlineNameAction] = useState(null);
+    const [inlineNameValue, setInlineNameValue] = useState('');
+    const [canvasSearchOpen, setCanvasSearchOpen] = useState(false);
+    const [canvasSearchQuery, setCanvasSearchQuery] = useState('');
+    const [rowMenuCanvasId, setRowMenuCanvasId] = useState(null);
     const activeCanvasId = activeFile?.canvasId || null;
     const activeModuleName = activeFile?.moduleName || null;
 
     const canvasSummaries = useMemo(() => getCanvasSummaries(projectModel), [projectModel]);
     const activeSummary = canvasSummaries.find((canvas) => canvas.isActive);
-    const inactiveCanvases = canvasSummaries.filter((canvas) => !canvas.isActive);
+    const filteredCanvasSummaries = useMemo(() => {
+        const query = canvasSearchQuery.trim().toLowerCase();
+        if (!query) return canvasSummaries;
+        return canvasSummaries.filter((canvas) =>
+            [canvas.moduleName, canvas.name, canvas.id]
+                .filter(Boolean)
+                .some((value) => String(value).toLowerCase().includes(query))
+        );
+    }, [canvasSearchQuery, canvasSummaries]);
 
     const moduleFilesByCanvas = useMemo(() => {
         const next = {};
@@ -176,22 +207,95 @@ const HierarchyTab = ({
         };
     }, [activeFile, activeFileDetails, dirty, getFileCode]);
 
-    const createCanvas = () => {
-        const canvasName = window.prompt('New canvas/module name', 'uart_top');
-        if (canvasName === null) return;
-        onCreateCanvas(canvasName);
+    useEffect(() => {
+        if (!inlineNameAction) return;
+        let cancelled = false;
+        queueMicrotask(() => {
+            if (cancelled) return;
+            nameInputRef.current?.focus();
+            nameInputRef.current?.select();
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [inlineNameAction]);
+
+    useEffect(() => {
+        if (!canvasSearchOpen) return;
+        let cancelled = false;
+        queueMicrotask(() => {
+            if (!cancelled) canvasSearchInputRef.current?.focus();
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [canvasSearchOpen]);
+
+    useEffect(() => {
+        if (!rowMenuCanvasId) return undefined;
+        const closeMenu = () => setRowMenuCanvasId(null);
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape') closeMenu();
+        };
+        window.addEventListener('click', closeMenu);
+        window.addEventListener('keydown', handleKeyDown);
+        return () => {
+            window.removeEventListener('click', closeMenu);
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [rowMenuCanvasId]);
+
+    const cancelInlineNameEdit = () => {
+        setInlineNameAction(null);
+        setInlineNameValue('');
     };
 
-    const promoteCurrent = () => {
-        const moduleName = window.prompt('Save current canvas as module', activeSummary?.moduleName || 'top_module');
-        if (moduleName === null) return;
-        onPromoteCurrentCanvas(moduleName);
+    const beginInlineNameEdit = (actionConfig) => {
+        setInlineNameValue(actionConfig.initialValue || '');
+        setInlineNameAction(actionConfig);
+        if (actionConfig.canvasId) setExpandedCanvasId(actionConfig.canvasId);
+    };
+
+    const submitInlineNameEdit = () => {
+        const nextName = inlineNameValue.trim();
+        if (!inlineNameAction || !nextName) {
+            cancelInlineNameEdit();
+            return;
+        }
+        inlineNameAction.onSubmit(nextName);
+        cancelInlineNameEdit();
+    };
+
+    const createCanvas = () => {
+        beginInlineNameEdit({
+            mode: 'create',
+            initialValue: 'uart_top',
+            placeholder: 'uart_top',
+            onSubmit: onCreateCanvas,
+        });
+    };
+
+    const createChildCanvas = (canvas) => {
+        beginInlineNameEdit({
+            mode: 'create-child',
+            canvasId: canvas.id,
+            initialValue: `${canvas.moduleName}_sub`,
+            placeholder: `${canvas.moduleName}_sub`,
+            onSubmit: (nextName) => onCreateChildCanvas(canvas.id, nextName),
+        });
     };
 
     const handleImportChange = (event) => {
         const files = event.target.files;
-        if (files?.length) onImportVerilogFiles(files);
+        const targetCanvasId = pendingImportCanvasIdRef.current;
+        pendingImportCanvasIdRef.current = null;
+        if (files?.length) onImportVerilogFiles(files, targetCanvasId);
         event.target.value = '';
+    };
+
+    const importRtlIntoCanvas = (canvas) => {
+        pendingImportCanvasIdRef.current = canvas.id;
+        importInputRef.current?.click();
     };
 
     const openFile = (file, canvas) => {
@@ -225,6 +329,56 @@ const HierarchyTab = ({
         onDeleteCanvas(canvas.id);
     };
 
+    const renameCanvas = (canvas) => {
+        beginInlineNameEdit({
+            mode: 'rename',
+            canvasId: canvas.id,
+            initialValue: canvas.moduleName,
+            placeholder: canvas.moduleName,
+            onSubmit: (nextName) => onRenameCanvas(canvas.id, nextName),
+        });
+    };
+
+    const handleInlineNameKeyDown = (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            submitInlineNameEdit();
+        }
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            cancelInlineNameEdit();
+        }
+    };
+
+    const inlineInput = (placeholder = 'module_name') => (
+        <input
+            ref={nameInputRef}
+            value={inlineNameValue}
+            onChange={(event) => setInlineNameValue(event.target.value)}
+            onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onKeyDown={handleInlineNameKeyDown}
+            onBlur={cancelInlineNameEdit}
+            placeholder={placeholder}
+            spellCheck={false}
+            title="Enter to confirm, Escape to cancel"
+            style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                height: '24px',
+                border: `1px solid ${t.primary || '#3b82f6'}`,
+                borderRadius: '4px',
+                outline: 'none',
+                background: theme === 'dark' ? '#050505' : '#ffffff',
+                color: t.textHeading,
+                padding: '0 7px',
+                fontFamily: '"SF Mono", Menlo, Monaco, Consolas, monospace',
+                fontSize: '12px',
+                fontWeight: 800,
+            }}
+        />
+    );
+
     const deleteFile = (file, canvas) => {
         if (!canvas.isActive) return;
         const confirmed = window.confirm(
@@ -237,6 +391,35 @@ const HierarchyTab = ({
             setDirty(false);
         }
         onDeleteModuleFile(file.moduleName);
+    };
+
+    const menuItemStyle = ({ danger = false, disabled = false } = {}) => ({
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        border: 'none',
+        background: 'transparent',
+        color: disabled ? t.textMuted : danger ? '#ef4444' : t.textHeading,
+        cursor: disabled ? 'default' : 'pointer',
+        padding: '8px 10px',
+        fontSize: '12px',
+        fontWeight: 650,
+        textAlign: 'left',
+        opacity: disabled ? 0.48 : 1,
+    });
+
+    const menuIconStyle = {
+        width: '16px',
+        display: 'inline-flex',
+        justifyContent: 'center',
+        flexShrink: 0,
+    };
+
+    const runMenuAction = (event, action) => {
+        event.stopPropagation();
+        setRowMenuCanvasId(null);
+        action();
     };
 
     return (
@@ -270,19 +453,21 @@ const HierarchyTab = ({
                     Project
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                    <ToolbarIconButton title="Import RTL Files" onClick={() => importInputRef.current?.click()} t={t}>
-                        <IconFolder size={14} />
+                    <ToolbarIconButton
+                        title={canvasSearchOpen ? 'Close Canvas Search' : 'Search Canvases'}
+                        onClick={() => {
+                            setCanvasSearchOpen((current) => {
+                                const next = !current;
+                                if (!next) setCanvasSearchQuery('');
+                                return next;
+                            });
+                        }}
+                        t={t}
+                    >
+                        <IconSearch size={14} />
                     </ToolbarIconButton>
                     <ToolbarIconButton title="New Canvas" onClick={createCanvas} t={t}>
                         <IconPlus size={14} />
-                    </ToolbarIconButton>
-                    <ToolbarIconButton
-                        title="Save Current Canvas as Module"
-                        onClick={promoteCurrent}
-                        disabled={nodes.length === 0 && edges.length === 0}
-                        t={t}
-                    >
-                        <IconSave size={14} />
                     </ToolbarIconButton>
                 </div>
                 <input
@@ -294,6 +479,69 @@ const HierarchyTab = ({
                     style={{ display: 'none' }}
                 />
             </div>
+
+            {canvasSearchOpen && (
+                <div style={{ padding: '9px 12px 0' }}>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                        <input
+                            ref={canvasSearchInputRef}
+                            value={canvasSearchQuery}
+                            onChange={(event) => setCanvasSearchQuery(event.target.value)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Escape') {
+                                    event.preventDefault();
+                                    setCanvasSearchQuery('');
+                                    setCanvasSearchOpen(false);
+                                }
+                            }}
+                            placeholder="Search canvas..."
+                            spellCheck={false}
+                            style={{
+                                ...s.input,
+                                width: '100%',
+                                height: '28px',
+                                boxSizing: 'border-box',
+                                padding: '0 28px 0 28px',
+                                borderRadius: '5px',
+                                border: `1px solid ${t.borderStrong || t.border}`,
+                                background: theme === 'dark' ? '#050505' : '#ffffff',
+                                color: t.textHeading,
+                                fontSize: '12px',
+                            }}
+                        />
+                        <span style={{ position: 'absolute', left: '9px', display: 'inline-flex', color: t.textMuted, pointerEvents: 'none' }}>
+                            <IconSearch size={13} />
+                        </span>
+                        {canvasSearchQuery && (
+                            <button
+                                type="button"
+                                title="Clear search"
+                                onClick={() => setCanvasSearchQuery('')}
+                                style={{
+                                    position: 'absolute',
+                                    right: '4px',
+                                    width: '22px',
+                                    height: '22px',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    background: 'transparent',
+                                    color: t.textMuted,
+                                    cursor: 'pointer',
+                                    fontSize: '15px',
+                                    lineHeight: '20px',
+                                }}
+                            >
+                                ×
+                            </button>
+                        )}
+                    </div>
+                    <div style={{ marginTop: '5px', fontSize: '10px', color: t.textMuted }}>
+                        {canvasSearchQuery.trim()
+                            ? `${filteredCanvasSummaries.length}/${canvasSummaries.length} canvases`
+                            : `${canvasSummaries.length} canvases`}
+                    </div>
+                </div>
+            )}
 
             {importStatus && (
                 <div
@@ -328,20 +576,52 @@ const HierarchyTab = ({
                 >
                     Explorer
                 </div>
-                {canvasSummaries.length === 0 ? (
+                {canvasSummaries.length === 0 && inlineNameAction?.mode !== 'create' ? (
                     <div style={s.emptyState}>No project canvases yet.</div>
                 ) : (
                     <div style={{ display: 'grid', gap: '7px' }}>
-                        {canvasSummaries.map((canvas) => {
+                        {inlineNameAction?.mode === 'create' && (
+                            <div
+                                style={{
+                                    border: `1px dashed ${t.primary || '#3b82f6'}`,
+                                    background: 'rgba(59,130,246,0.08)',
+                                    borderRadius: '8px',
+                                    padding: '9px 10px',
+                                    cursor: 'default',
+                                }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                    <span style={{ color: t.textMuted, fontSize: '12px', fontWeight: 800, flexShrink: 0 }}>
+                                        &gt;
+                                    </span>
+                                    {inlineInput(inlineNameAction.placeholder)}
+                                </div>
+                                <div style={{ color: t.textMuted, fontSize: '10px', marginTop: '5px', paddingLeft: '18px' }}>
+                                    Enter to create. Escape or click away to cancel.
+                                </div>
+                            </div>
+                        )}
+                        {filteredCanvasSummaries.length === 0 && inlineNameAction?.mode !== 'create' && (
+                            <div style={{ ...s.emptyState, padding: '18px 10px' }}>
+                                No canvases match “{canvasSearchQuery.trim()}”.
+                            </div>
+                        )}
+                        {filteredCanvasSummaries.map((canvas) => {
                             const isActive = canvas.isActive;
                             const isExpanded = expandedCanvasId === canvas.id;
                             const moduleFiles = moduleFilesByCanvas[canvas.id] || [];
+                            const isInlineEditingThisCanvas =
+                                inlineNameAction?.canvasId === canvas.id &&
+                                (inlineNameAction.mode === 'rename' || inlineNameAction.mode === 'promote');
+                            const isCreatingChildHere =
+                                inlineNameAction?.canvasId === canvas.id &&
+                                inlineNameAction.mode === 'create-child';
 
                             return (
                                 <div
                                     key={canvas.id}
                                     onClick={(event) => {
-                                        if (event.target.closest('button')) return;
+                                        if (event.target.closest('button, input')) return;
                                         setExpandedCanvasId(isExpanded ? null : canvas.id);
                                     }}
                                     style={{
@@ -353,70 +633,186 @@ const HierarchyTab = ({
                                     }}
                                 >
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                                        <div style={{ minWidth: 0 }}>
-                                            <div style={{ color: t.textHeading, fontSize: '12px', fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                {isExpanded ? 'v' : '>'} {canvas.moduleName}
-                                            </div>
+                                        <div style={{ minWidth: 0, flex: 1 }}>
+                                            {isInlineEditingThisCanvas ? (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                                    <span style={{ color: t.textMuted, fontSize: '12px', fontWeight: 800, flexShrink: 0 }}>
+                                                        {isExpanded ? 'v' : '>'}
+                                                    </span>
+                                                    {inlineInput(inlineNameAction.placeholder)}
+                                                </div>
+                                            ) : (
+                                                <div style={{ color: t.textHeading, fontSize: '12px', fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {isExpanded ? 'v' : '>'} {canvas.moduleName}
+                                                </div>
+                                            )}
                                             <div style={{ color: t.textMuted, fontSize: '10px', marginTop: '3px' }}>
-                                                {canvas.nodeCount} blocks - {canvas.edgeCount} links - {canvas.exposedPortCount} ports
+                                                {isInlineEditingThisCanvas
+                                                    ? 'Enter to confirm. Escape or click away to cancel.'
+                                                    : `${canvas.nodeCount} blocks - ${canvas.edgeCount} links - ${canvas.exposedPortCount} ports`}
                                             </div>
                                         </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '2px', flexShrink: 0 }}>
-                                            <ToolbarIconButton
-                                                title={isActive ? 'Canvas already open' : 'Open Canvas'}
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    onOpenCanvas(canvas.id);
-                                                }}
-                                                disabled={isActive}
-                                                t={t}
-                                                wide
-                                            >
-                                                <span style={{ fontSize: '10px', fontWeight: 900, color: isActive ? '#3b82f6' : '#10b981' }}>
-                                                    {isActive ? 'ACTIVE' : 'OPEN'}
+                                        <div
+                                            onClick={(event) => event.stopPropagation()}
+                                            style={{ display: isInlineEditingThisCanvas ? 'none' : 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, position: 'relative' }}
+                                        >
+                                            {isActive && (
+                                                <span style={{ fontSize: '10px', fontWeight: 900, color: '#3b82f6' }}>
+                                                    ACTIVE
                                                 </span>
-                                            </ToolbarIconButton>
+                                            )}
                                             <ToolbarIconButton
-                                                title={isActive ? 'Cannot instantiate active canvas here' : 'Instantiate Canvas Here'}
+                                                title={`Canvas actions for ${canvas.moduleName}`}
                                                 onClick={(event) => {
                                                     event.stopPropagation();
-                                                    onInstantiateCanvas(canvas.id);
+                                                    setRowMenuCanvasId((current) => (current === canvas.id ? null : canvas.id));
                                                 }}
-                                                disabled={isActive || inactiveCanvases.length === 0}
-                                                t={t}
-                                                wide={!isActive}
-                                            >
-                                                <IconPlus size={13} />
-                                                {!isActive && (
-                                                    <span style={{ fontSize: '10px', fontWeight: 800 }}>
-                                                        Inst
-                                                    </span>
-                                                )}
-                                            </ToolbarIconButton>
-                                            <ToolbarIconButton
-                                                title={canvasSummaries.length <= 1 ? 'At least one canvas must remain' : `Delete ${canvas.moduleName}`}
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    deleteCanvas(canvas);
-                                                }}
-                                                disabled={canvasSummaries.length <= 1}
                                                 t={t}
                                             >
-                                                <IconTrash size={13} />
+                                                <IconDotsVertical size={15} />
                                             </ToolbarIconButton>
+                                            {rowMenuCanvasId === canvas.id && (
+                                                <div
+                                                    onClick={(event) => event.stopPropagation()}
+                                                    style={{
+                                                        position: 'absolute',
+                                                        top: '30px',
+                                                        right: 0,
+                                                        minWidth: '170px',
+                                                        padding: '5px 0',
+                                                        border: `1px solid ${t.borderStrong || t.border}`,
+                                                        borderRadius: '8px',
+                                                        background: t.bgSecondary,
+                                                        boxShadow: theme === 'dark'
+                                                            ? '0 14px 32px rgba(0,0,0,0.45)'
+                                                            : '0 14px 32px rgba(15,23,42,0.16)',
+                                                        zIndex: 80,
+                                                        overflow: 'hidden',
+                                                    }}
+                                                >
+                                                    <button
+                                                        type="button"
+                                                        disabled={isActive}
+                                                        onClick={(event) => runMenuAction(event, () => onOpenCanvas(canvas.id))}
+                                                        style={menuItemStyle({ disabled: isActive })}
+                                                        onMouseEnter={(event) => {
+                                                            if (!isActive) event.currentTarget.style.background = 'rgba(148,163,184,0.12)';
+                                                        }}
+                                                        onMouseLeave={(event) => {
+                                                            event.currentTarget.style.background = 'transparent';
+                                                        }}
+                                                    >
+                                                        <span style={menuIconStyle}>↗</span>
+                                                        {isActive ? 'Already Active' : 'Open Canvas'}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(event) => runMenuAction(event, () => importRtlIntoCanvas(canvas))}
+                                                        style={menuItemStyle()}
+                                                        onMouseEnter={(event) => {
+                                                            event.currentTarget.style.background = 'rgba(148,163,184,0.12)';
+                                                        }}
+                                                        onMouseLeave={(event) => {
+                                                            event.currentTarget.style.background = 'transparent';
+                                                        }}
+                                                    >
+                                                        <span style={menuIconStyle}><IconFolder size={13} /></span>
+                                                        Add RTL Files
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={!onCreateChildCanvas}
+                                                        onClick={(event) => runMenuAction(event, () => createChildCanvas(canvas))}
+                                                        style={menuItemStyle({ disabled: !onCreateChildCanvas })}
+                                                        onMouseEnter={(event) => {
+                                                            if (onCreateChildCanvas) event.currentTarget.style.background = 'rgba(148,163,184,0.12)';
+                                                        }}
+                                                        onMouseLeave={(event) => {
+                                                            event.currentTarget.style.background = 'transparent';
+                                                        }}
+                                                    >
+                                                        <span style={menuIconStyle}><IconPlus size={13} /></span>
+                                                        New Child Sub-module
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={!onRenameCanvas}
+                                                        onClick={(event) => runMenuAction(event, () => renameCanvas(canvas))}
+                                                        style={menuItemStyle({ disabled: !onRenameCanvas })}
+                                                        onMouseEnter={(event) => {
+                                                            if (onRenameCanvas) event.currentTarget.style.background = 'rgba(148,163,184,0.12)';
+                                                        }}
+                                                        onMouseLeave={(event) => {
+                                                            event.currentTarget.style.background = 'transparent';
+                                                        }}
+                                                    >
+                                                        <span style={menuIconStyle}><IconPencil size={13} /></span>
+                                                        Rename
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={isActive}
+                                                        onClick={(event) => runMenuAction(event, () => onInstantiateCanvas(canvas.id))}
+                                                        style={menuItemStyle({ disabled: isActive })}
+                                                        onMouseEnter={(event) => {
+                                                            if (!isActive) event.currentTarget.style.background = 'rgba(148,163,184,0.12)';
+                                                        }}
+                                                        onMouseLeave={(event) => {
+                                                            event.currentTarget.style.background = 'transparent';
+                                                        }}
+                                                    >
+                                                        <span style={menuIconStyle}><IconPlus size={13} /></span>
+                                                        Instantiate Here
+                                                    </button>
+                                                    <div style={{ height: '1px', margin: '4px 0', background: t.border }} />
+                                                    <button
+                                                        type="button"
+                                                        disabled={canvasSummaries.length <= 1}
+                                                        onClick={(event) => runMenuAction(event, () => deleteCanvas(canvas))}
+                                                        style={menuItemStyle({ danger: true, disabled: canvasSummaries.length <= 1 })}
+                                                        onMouseEnter={(event) => {
+                                                            if (canvasSummaries.length > 1) event.currentTarget.style.background = 'rgba(239,68,68,0.10)';
+                                                        }}
+                                                        onMouseLeave={(event) => {
+                                                            event.currentTarget.style.background = 'transparent';
+                                                        }}
+                                                    >
+                                                        <span style={menuIconStyle}><IconTrash size={13} /></span>
+                                                        Delete Canvas
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
 
                                     {isExpanded && (
                                         <div style={{ marginTop: '10px', display: 'grid', gap: '6px' }}>
+                                            {isCreatingChildHere && (
+                                                <div
+                                                    style={{
+                                                        border: `1px dashed ${t.primary || '#3b82f6'}`,
+                                                        background: 'rgba(59,130,246,0.08)',
+                                                        borderRadius: '7px',
+                                                        padding: '8px 9px',
+                                                    }}
+                                                >
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                                                        <span style={{ color: t.textMuted, fontSize: '12px', fontWeight: 800, flexShrink: 0 }}>
+                                                            └
+                                                        </span>
+                                                        {inlineInput(inlineNameAction.placeholder)}
+                                                    </div>
+                                                    <div style={{ color: t.textMuted, fontSize: '10px', marginTop: '5px', paddingLeft: '18px' }}>
+                                                        Enter to create child sub-module under {canvas.moduleName}. Escape or click away to cancel.
+                                                    </div>
+                                                </div>
+                                            )}
                                             {moduleFiles.length === 0 ? (
                                                 <div style={{ ...s.emptyState, padding: '14px 10px' }}>
-                                                    No module blocks in this canvas.
+                                                    {isCreatingChildHere ? 'No module blocks in this canvas yet.' : 'No module blocks in this canvas.'}
                                                 </div>
                                             ) : (
                                                 moduleFiles.map((file) => {
-                                                    const code = customCodes?.[file.moduleName] ?? getModuleCode(file.node);
-                                                    const lineCount = code ? code.split('\n').length : 0;
                                                     const isOpen = activeFile?.canvasId === canvas.id && activeFile?.moduleName === file.moduleName;
 
                                                     return (
@@ -431,7 +827,7 @@ const HierarchyTab = ({
                                                                 gap: '8px',
                                                                 width: '100%',
                                                                 textAlign: 'left',
-                                                                padding: '9px 10px',
+                                                                padding: '7px 9px',
                                                                 borderRadius: '7px',
                                                                 cursor: 'pointer',
                                                                 background: isOpen ? 'rgba(59,130,246,0.16)' : 'rgba(0,0,0,0.10)',
@@ -444,9 +840,6 @@ const HierarchyTab = ({
                                                                 <span style={{ minWidth: 0 }}>
                                                                     <span style={{ display: 'block', fontFamily: '"SF Mono", Menlo, Monaco, monospace', fontSize: '12px', fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                                         {file.moduleName}.v
-                                                                    </span>
-                                                                    <span style={{ display: 'block', marginTop: '2px', fontSize: '10px', color: t.textMuted }}>
-                                                                        {file.instances} instance{file.instances !== 1 ? 's' : ''} - {lineCount} lines
                                                                     </span>
                                                                 </span>
                                                             </span>

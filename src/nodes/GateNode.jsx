@@ -11,6 +11,8 @@ import {
     InfoIcon,
     renderDecorations
 } from '../styles';
+import { useCanvasTheme } from '../utils/CanvasThemeContext';
+import { getEdgeEffectiveWidths, getTargetSlice, rangesOverlap } from '../utils/edgeSlices';
 
 export default function GateNode({ id, data, selected }) {
     // ─── ALL HOOKS CALLED UNCONDITIONALLY ─────────────────────────────
@@ -22,7 +24,8 @@ export default function GateNode({ id, data, selected }) {
         if (data) updateNodeInternals(id);
     }, [data, data?.portsSwapped, id, updateNodeInternals]);
 
-    const isDark = data?.theme === 'dark';
+    const canvasTheme = useCanvasTheme(data?.theme || 'dark');
+    const isDark = canvasTheme === 'dark';
     const t = isDark ? darkNodeStyles : lightNodeStyles;
     const isSwapped = !!data?.portsSwapped;
     const inputsPosition = isSwapped ? Position.Right : Position.Left;
@@ -51,14 +54,22 @@ export default function GateNode({ id, data, selected }) {
                 w.push({ msg: 'Floating input', icon: <IconAlert color="#ef4444" size={10} /> });
             }
             if (connected.length > 1) {
-                w.push({ msg: 'Multiple drivers', icon: <IconZap color="#ef4444" size={10} /> });
+                const slices = connected.map((edge) => getTargetSlice(edge, port));
+                const hasFullPortDriver = slices.some((slice) => !slice);
+                const hasOverlap = slices.some((slice, sliceIndex) =>
+                    slices.some((otherSlice, otherIndex) => sliceIndex !== otherIndex && rangesOverlap(slice, otherSlice))
+                );
+                if (hasFullPortDriver || hasOverlap) {
+                    w.push({ msg: 'Overlapping input drivers', icon: <IconZap color="#ef4444" size={10} /> });
+                }
             }
-            // Width mismatch: compare source and target widths directly
             const hasMismatch = connected.some(e => {
                 const srcNode = allNodes.find(n => n.id === e.source);
                 if (!srcNode) return false;
                 const srcPort = (srcNode.data.outputs || []).find(p => p.name === e.sourceHandle);
-                return srcPort && srcPort.width !== port.width;
+                if (!srcPort) return false;
+                const { sourceWidth, targetWidth } = getEdgeEffectiveWidths(e, srcPort, port);
+                return sourceWidth !== targetWidth;
             });
             if (hasMismatch) {
                 w.push({ msg: 'Width mismatch', icon: <IconActivity color="#f59e0b" size={10} /> });

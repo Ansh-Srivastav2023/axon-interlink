@@ -1,5 +1,5 @@
-import { useRef } from "react";
 import { highlightVerilogCode } from "../verilog-code/verilogEdits";
+import { hasExactIdentifierToken, isNavigableWireLine } from "../utils/verilogNavigation";
 import TopSymbolView from "./TopSymbolView";
 
 const VIEW_TABS = [
@@ -46,12 +46,12 @@ const RightActivityBar = ({
     copied,
     handleCopyCode,
     downloadTextFile,
-    onImportTopModuleFiles,
     structuralVerilogFull,
     testbenchCodeFull,
     activeTopModuleName,
+    generatedCodeDirty,
+    onRefreshGeneratedCode,
 }) => {
-    const importInputRef = useRef(null);
     const isDark = theme === 'dark';
     const railBg = isDark ? '#18181b' : '#f8fafc';
     const hoverBg = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)';
@@ -88,7 +88,11 @@ const RightActivityBar = ({
         },
     };
 
-    const currentCode = topViewMode === 'testbench' ? testbenchCodeFull : structuralVerilogFull;
+    const getCurrentCode = () => {
+        if (topViewMode === 'testbench') return testbenchCodeFull;
+        if (generatedCodeDirty && typeof onRefreshGeneratedCode === 'function') return onRefreshGeneratedCode();
+        return structuralVerilogFull;
+    };
     const safeModuleName = activeTopModuleName || 'top_module';
     const downloadName = topViewMode === 'testbench' ? `${safeModuleName}_tb.v` : `${safeModuleName}.v`;
 
@@ -145,35 +149,10 @@ const RightActivityBar = ({
             {canActOnCode && (
                 <>
                     <div style={{ height: '1px', margin: '8px 10px', background: borderColor }} />
-                    <input
-                        ref={importInputRef}
-                        type="file"
-                        accept=".v,.sv,.vh"
-                        multiple
-                        onChange={(event) => {
-                            const files = event.target.files;
-                            if (files?.length) onImportTopModuleFiles(files);
-                            event.target.value = '';
-                        }}
-                        style={{ display: 'none' }}
-                    />
-                    <button
-                        type="button"
-                        title="Import Top / RTL Files"
-                        onClick={() => importInputRef.current?.click()}
-                        style={itemStyle(false)}
-                        {...hoverHandlers}
-                    >
-                        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                            <polyline points="17 8 12 3 7 8" />
-                            <line x1="12" y1="3" x2="12" y2="15" />
-                        </svg>
-                    </button>
                     <button
                         type="button"
                         title="Download Verilog"
-                        onClick={() => downloadTextFile(downloadName, currentCode)}
+                        onClick={() => downloadTextFile(downloadName, getCurrentCode())}
                         style={itemStyle(false)}
                         {...hoverHandlers}
                     >
@@ -226,8 +205,10 @@ const RightPanel = ({
     copied,
     handleCopyCode,
     downloadTextFile,
-    onImportTopModuleFiles,
     activeTopModuleName,
+    generatedCodeDirty,
+    onRefreshGeneratedCode,
+    performanceMode,
 }) => {
     const isDark = theme === 'dark';
     const codeTheme = {
@@ -280,9 +261,8 @@ const RightPanel = ({
                     {lines.map((line, idx) => {
                         const isCommentOrEmpty = !line.trim() || line.trim().startsWith('//');
                         const isInteractive = interactive && !isCommentOrEmpty && (
-                            line.includes('wire w_') ||
-                            line.includes('assign w_') ||
-                            (nodes || []).some(n => n && line.includes(n.data?.instanceName))
+                            isNavigableWireLine(line) ||
+                            (nodes || []).some(n => n && hasExactIdentifierToken(line, n.data?.instanceName))
                         );
 
                         return (
@@ -314,7 +294,46 @@ const RightPanel = ({
 
     const renderContent = () => {
         if (topViewMode === 'code') {
-            return renderCodePanel(structuralVerilogFull, { interactive: true });
+            return (
+                <>
+                    {performanceMode && generatedCodeDirty && (
+                        <div
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '10px',
+                                padding: '8px 12px',
+                                borderBottom: `1px solid ${codeTheme.border}`,
+                                background: isDark ? 'rgba(245,158,11,0.10)' : 'rgba(245,158,11,0.12)',
+                                color: '#f59e0b',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                flexShrink: 0,
+                            }}
+                        >
+                            <span>Generated top module is stale. Refresh when needed.</span>
+                            <button
+                                type="button"
+                                onClick={onRefreshGeneratedCode}
+                                style={{
+                                    border: '1px solid rgba(245,158,11,0.45)',
+                                    background: 'transparent',
+                                    color: '#f59e0b',
+                                    borderRadius: '5px',
+                                    padding: '3px 7px',
+                                    fontSize: '11px',
+                                    fontWeight: 800,
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                Refresh
+                            </button>
+                        </div>
+                    )}
+                    {renderCodePanel(structuralVerilogFull, { interactive: true })}
+                </>
+            );
         }
 
         if (topViewMode === 'testbench') {
@@ -347,10 +366,11 @@ const RightPanel = ({
                 copied={copied}
                 handleCopyCode={handleCopyCode}
                 downloadTextFile={downloadTextFile}
-                onImportTopModuleFiles={onImportTopModuleFiles}
                 structuralVerilogFull={structuralVerilogFull}
                 testbenchCodeFull={testbenchCodeFull}
                 activeTopModuleName={activeTopModuleName}
+                generatedCodeDirty={generatedCodeDirty}
+                onRefreshGeneratedCode={onRefreshGeneratedCode}
             />
         </div>
     );
